@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { CITY } from "../config";
+import { CITY, ROAD } from "../config";
 import { hash2 } from "../core/rng";
 import { genChunk, ChunkData } from "./citygen";
-import { makeBuildingMaterial, makePropsMaterial } from "../render/materials";
+import { makeBuildingMaterial, makePropsMaterial, makeLampGlowMaterial } from "../render/materials";
 
 interface LiveChunk { data: ChunkData; group: THREE.Group; }
 
@@ -15,6 +15,9 @@ export class World {
   private trunkGeo: THREE.CylinderGeometry;
   private foliageGeo: THREE.SphereGeometry;
   private parkGeo: THREE.PlaneGeometry;
+  private lampPoleGeo: THREE.CylinderGeometry;
+  private lampHeadGeo: THREE.SphereGeometry;
+  private lampMat: THREE.ShaderMaterial;
   buildingMat: THREE.ShaderMaterial;
   propsMat: THREE.ShaderMaterial;
 
@@ -26,6 +29,9 @@ export class World {
     this.foliageGeo = new THREE.SphereGeometry(1, 7, 5);
     this.parkGeo = new THREE.PlaneGeometry(CITY.blockPitch - 12, CITY.blockPitch - 12);
     this.parkGeo.rotateX(-Math.PI / 2);
+    this.lampPoleGeo = new THREE.CylinderGeometry(0.07, 0.11, 4.6, 5);
+    this.lampHeadGeo = new THREE.SphereGeometry(0.28, 6, 4);
+    this.lampMat = makeLampGlowMaterial();
   }
 
   dispose() {
@@ -148,6 +154,35 @@ export class World {
       this.setChunkBounds(trunks, cx, cz, 40);
       this.setChunkBounds(foliage, cx, cz, 40);
       group.add(trunks, foliage);
+    }
+
+    // street lamps: four sidewalk corners around the chunk's own grid
+    // crossing — matching the warm light pools the ground shader paints there
+    {
+      const poleGeo = this.lampPoleGeo.clone();
+      const headGeo = this.lampHeadGeo.clone();
+      const poles = new THREE.InstancedMesh(poleGeo, this.propsMat, 4);
+      const heads = new THREE.InstancedMesh(headGeo, this.lampMat, 4);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const e = new THREE.Euler();
+      const v = new THREE.Vector3();
+      for (let s = 0; s < 4; s++) {
+        const sx2 = s < 2 ? -ROAD.half - 0.6 : ROAD.half + 0.6;
+        const sz2 = s === 0 || s === 3 ? -ROAD.half - 0.6 : ROAD.half + 0.6;
+        const lx = ox + sx2, lz = oz + sz2;
+        const ang = Math.atan2(-sx2, -sz2); // arm reaches diagonally over the crossing
+        e.set(0, ang, 0); q.setFromEuler(e);
+        m.compose(v.set(lx, 2.3, lz), q, new THREE.Vector3(1, 1, 1));
+        poles.setMatrixAt(s, m);
+        const len = Math.hypot(sx2, sz2);
+        const dirX = -sx2 / len, dirZ = -sz2 / len;
+        m.compose(v.set(lx + dirX * 0.75, 4.45, lz + dirZ * 0.75), q, new THREE.Vector3(1, 1, 1));
+        heads.setMatrixAt(s, m);
+      }
+      this.setChunkBounds(poles, cx, cz, 40);
+      this.setChunkBounds(heads, cx, cz, 40);
+      group.add(poles, heads);
     }
 
     if (data.park) {

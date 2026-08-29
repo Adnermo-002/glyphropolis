@@ -24,6 +24,18 @@ export const TIME = {
   startHour: 19.3,         // dusk: neon flickering on, horizon still warm
 };
 
+// Canonical street cross-section, shared by citygen, world and (interpolated
+// into GLSL) the ground shader. A 12m carriageway sits centered on every grid
+// line; sidewalks stretch `walk` metres beyond its edge; buildings start 0.6m
+// into the block proper.
+export const ROAD = {
+  half: 6,      // carriageway half width (metres)
+  walk: 4.2,    // sidewalk width beyond the road edge
+  crossLen: 2.3, // crosswalk band width
+  get line() { return this.half + this.walk; },           // sidewalk outer edge (10.2)
+  get treeLine() { return this.half + this.walk - 1.0; }, // street tree centerline (9.2)
+};
+
 export const CAMERA = {
   fovY: 52,                // VERTICAL fov; ~82 deg horizontal at 16:9
 };

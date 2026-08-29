@@ -1,4 +1,4 @@
-import { CITY } from "../config";
+import { CITY, ROAD } from "../config";
 import { hash2, fbm, clamp } from "../core/rng";
 
 export interface BoxDef { x: number; y0: number; z: number; sx: number; sy: number; sz: number;
@@ -35,9 +35,11 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
   if (district === "park") {
     const n = 18 + Math.floor(hash2(seed, cx * 3, cz * 7) * 12);
     for (let i = 0; i < n; i++) {
+      // parks keep every tree inside the block proper — never on sidewalks or roads
+      const m0 = ROAD.line + 0.8, m1 = P - ROAD.line - 0.8;
       data.trees.push({
-        x: ox + 9 + hash2(seed, cx * 31 + i, cz * 17) * (P - 18),
-        z: oz + 9 + hash2(seed, cx * 13, cz * 47 + i) * (P - 18),
+        x: ox + m0 + hash2(seed, cx * 31 + i, cz * 17) * (m1 - m0),
+        z: oz + m0 + hash2(seed, cx * 13, cz * 47 + i) * (m1 - m0),
         s: 0.8 + hash2(seed, cx * 7 + i, cz * 29) * 0.9,
       });
     }
@@ -48,7 +50,7 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
   const isLandmark = hash2(seed ^ 0xbeef, cx, cz) < 0.02;
 
   // 2x2 lots inside the block, keeping clear of the (wide) sidewalks
-  const inner0 = 6 + 4.8, inner1 = P - 6 - 4.8;
+  const inner0 = ROAD.line + 0.6, inner1 = P - ROAD.line - 0.6;
   const lotW = (inner1 - inner0) / 2;
   for (let lx = 0; lx < 2; lx++) for (let lz = 0; lz < 2; lz++) {
     const r0 = hash2(seed, cx * 2 + lx, cz * 2 + lz);
@@ -106,10 +108,10 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
     const density = district === "downtown" ? 0.3 : 0.6;
     for (let k = 0; k < 4; k++) {
       if (hash2(seed, cx * 17 + k, cz * 5) < density) {
-        data.trees.push({ x: ox + 9.2, z: oz + 18 + k * 11 + hash2(seed, cx + k, cz * 3) * 4, s: 0.75 + hash2(seed, cx * 2 + k, cz) * 0.4 });
+        data.trees.push({ x: ox + ROAD.treeLine, z: oz + 18 + k * 11 + hash2(seed, cx + k, cz * 3) * 4, s: 0.75 + hash2(seed, cx * 2 + k, cz) * 0.4 });
       }
       if (hash2(seed, cx * 5, cz * 17 + k) < density) {
-        data.trees.push({ x: ox + 18 + k * 11 + hash2(seed, cx * 3, cz + k) * 4, z: oz + 9.2, s: 0.75 + hash2(seed, cx, cz * 2 + k) * 0.4 });
+        data.trees.push({ x: ox + 18 + k * 11 + hash2(seed, cx * 3, cz + k) * 4, z: oz + ROAD.treeLine, s: 0.75 + hash2(seed, cx, cz * 2 + k) * 0.4 });
       }
     }
   }

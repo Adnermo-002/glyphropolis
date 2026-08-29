@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CITY } from "../config";
+import { CITY, ROAD } from "../config";
 
 // Global uniforms shared by every custom material; daynight.ts + weather write them.
 export const U = {
@@ -142,6 +142,36 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
   });
 }
 
+// ---------------------------------------------------------------- street lamp heads
+export function makeLampGlowMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: U,
+    vertexShader: `
+      varying vec3 vWorld;
+      void main(){
+        #ifdef USE_INSTANCING
+          vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
+        #else
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+        #endif
+        vWorld = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform float uAmbient; uniform float uFlash; uniform vec3 uFogColor; uniform float uFogD;
+      varying vec3 vWorld;
+      ${GLSL_FOG}
+      void main(){
+        float night = 1.0 - smoothstep(0.3, 0.55, uAmbient);
+        vec3 col = vec3(1.0, 0.78, 0.45) * (0.18 + 1.5 * night) + uFlash * 0.3;
+        col = applyFog(col, vWorld, cameraPosition, uFogColor, uFogD, uFlash);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+}
+
 // ---------------------------------------------------------------- props (trees, park ground)
 export function makePropsMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -209,8 +239,8 @@ export function makeGroundMaterial(): THREE.ShaderMaterial {
         vec3 p = vWorld;
         float rx = mod(p.x, uPitch);   // vertical roads: rx in [0,6)
         float rz = mod(p.z, uPitch);   // horizontal roads: rz in [0,6)
-        bool roadX = rx < 6.0;         // runs along z
-        bool roadZ = rz < 6.0;
+        bool roadX = rx < ${ROAD.half.toFixed(1)};         // runs along z
+        bool roadZ = rz < ${ROAD.half.toFixed(1)};
         float spec = 0.0;
         vec3 col;
 
@@ -229,15 +259,15 @@ export function makeGroundMaterial(): THREE.ShaderMaterial {
           }
           // crosswalks near intersection approaches
           float qA = roadX ? rz : rx;   // crossing road coord
-          bool nearCross = (qA > 10.2 && qA < 12.5) || (qA > uPitch - 12.5 && qA < uPitch - 10.2);
+          bool nearCross = (qA > ${ROAD.line.toFixed(1)} && qA < ${(ROAD.line + ROAD.crossLen).toFixed(1)}) || (qA > uPitch - ${(ROAD.line + ROAD.crossLen).toFixed(1)} && qA < uPitch - ${ROAD.line.toFixed(1)});
           if (!inInter && nearCross && mod(lane, uPitch / 26.0) < uPitch / 52.0) col = vec3(0.4, 0.39, 0.34);
           spec = 1.0;
-        } else if (rx < 6.0 + 4.2 || rx > uPitch - 10.2 || rz < 6.0 + 4.2 || rz > uPitch - 10.2) {
+        } else if (rx < ${ROAD.line.toFixed(1)} || rx > uPitch - ${ROAD.line.toFixed(1)} || rz < ${ROAD.line.toFixed(1)} || rz > uPitch - ${ROAD.line.toFixed(1)}) {
           // wide sidewalk + expansion joints
           col = vec3(0.2, 0.2, 0.21) * (0.9 + grain * 1.6);
           if (mod(p.x, 4.0) < 0.06 || mod(p.z, 4.0) < 0.06) col *= 0.8;
           // curb: darker strip along the road edge
-          float curbD = min(min(rx - 6.0, uPitch - 6.0 - rx), min(rz - 6.0, uPitch - 6.0 - rz));
+          float curbD = min(min(rx - ${ROAD.half.toFixed(1)}, uPitch - ${ROAD.half.toFixed(1)} - rx), min(rz - ${ROAD.half.toFixed(1)}, uPitch - ${ROAD.half.toFixed(1)} - rz));
           if (curbD < 0.4) col *= 0.62;
           spec = 0.4;
         } else {
