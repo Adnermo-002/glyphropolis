@@ -1,0 +1,29 @@
+html, body {
+  margin: 0; height: 100%; background: #000; overflow: hidden;
+}
+canvas#gl {
+  position: fixed; inset: 0; cursor: crosshair;
+}
+canvas#boot {
+  position: fixed; inset: 0; z-index: 10;
+}
+#hud {
+  position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  font-family: "Cascadia Mono", Consolas, "JetBrains Mono", Menlo, monospace;
+  color: #7dffa9;
+  text-shadow: 0 0 6px rgba(80, 255, 140, 0.35);
+}
+.hud-tl {
+  position: absolute; top: 14px; left: 16px;
+  font-size: 13px; line-height: 1.55; white-space: pre;
+}
+#minimap {
+  position: absolute; top: 14px; right: 16px;
+  border: 1px solid rgba(125, 255, 169, 0.4);
+  background: rgba(0, 10, 4, 0.55);
+  image-rendering: pixelated;
+}
+.hud-bl {
+  position: absolute; bottom: 14px; left: 16px;
+  font-size: 12px; opacity: 0.75; white-space: pre;
+}
