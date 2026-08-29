@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CITY } from "../config";
+import { CITY, CAMERA } from "../config";
 
 // Builds the persistent parts of the scene: renderer, camera, procedural
 // ground plane and sky dome. City chunks, traffic and weather are added by
@@ -22,7 +22,7 @@ export function buildScene(
   });
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(72, 1, 0.1, CITY.viewFar);
+  const camera = new THREE.PerspectiveCamera(CAMERA.fovY, 1, 0.1, CITY.viewFar);
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1700, 1700), groundMat);
   ground.rotation.x = -Math.PI / 2;

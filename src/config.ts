@@ -21,7 +21,11 @@ export const PLAYER = {
 
 export const TIME = {
   dayLengthSec: 540,       // full 24h cycle in 9 real minutes
-  startHour: 21.6,         // rainy neon night at spawn
+  startHour: 19.3,         // dusk: neon flickering on, horizon still warm
+};
+
+export const CAMERA = {
+  fovY: 52,                // VERTICAL fov; ~82 deg horizontal at 16:9
 };
 
 export const TEXTMODE = {
