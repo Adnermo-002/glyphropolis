@@ -78,6 +78,10 @@ async function main() {
 
   const resize = () => {
     const dpr = Math.min(devicePixelRatio || 1, 2);
+    // The textmode grid is computed in device pixels (w*dpr); the WebGL
+    // backing store must match or every cell, the atlas and the Bloom
+    // center land in the wrong place on HiDPI displays.
+    renderer.setPixelRatio(dpr);
     renderer.setSize(innerWidth, innerHeight, false);
     renderer.domElement.style.width = innerWidth + "px";
     renderer.domElement.style.height = innerHeight + "px";
