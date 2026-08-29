@@ -172,7 +172,9 @@ export function makePropsMaterial(): THREE.ShaderMaterial {
       varying vec3 vWorld; varying vec3 vNormal; varying vec3 vColor;
       ${GLSL_FOG}
       void main(){
-        float diff = max(dot(normalize(vNormal), uSunDir), 0.0);
+        // wrap lighting: foliage keeps a soft floor on its unlit side so a
+        // whole tree never drops to empty cells from certain sun angles
+        float diff = clamp(dot(normalize(vNormal), uSunDir) * 0.55 + 0.5, 0.07, 1.0);
         vec3 col = vColor * (uAmbient * uDim * vec3(0.9, 0.98, 0.92) + uSunColor * uSunI * diff * 0.8 * uDim);
         col += uFlash * 0.4;
         col = applyFog(col, vWorld, cameraPosition, uFogColor, uFogD, uFlash);

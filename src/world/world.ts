@@ -165,8 +165,12 @@ export class World {
 
   private setChunkBounds(mesh: THREE.InstancedMesh, cx: number, cz: number, h: number) {
     const P = CITY.blockPitch;
-    mesh.geometry.boundingSphere = new THREE.Sphere(
+    const sphere = new THREE.Sphere(
       new THREE.Vector3(cx * P + P / 2, h / 2, cz * P + P / 2), Math.sqrt(2) * P * 0.75 + h * 0.6);
+    mesh.geometry.boundingSphere = sphere.clone();
+    // three r170 frustum-culls InstancedMesh by the INSTANCE-level sphere;
+    // pin a generous one so a stale cached computation can never hide trees.
+    mesh.boundingSphere = sphere.clone();
   }
 
   private destroyChunk(c: LiveChunk) {
