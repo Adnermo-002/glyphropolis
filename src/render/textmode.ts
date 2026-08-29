@@ -114,7 +114,7 @@ const FRAG = `
     vec4 sA = texture2D(tScene, uvA); vec4 sB = texture2D(tScene, uvB);
     vec4 sC = texture2D(tScene, uvC); vec4 sD = texture2D(tScene, uvD);
     vec3 c = (sA.rgb + sB.rgb + sC.rgb + sD.rgb) * 0.25;
-    c = pow(c, vec3(0.78)) * uExposure; // exposure: lifted at night, tamed by day
+    c = pow(c, vec3(0.72)) * uExposure; // exposure: lifted at night, tamed by day
     float a = (sA.a + sB.a + sC.a + sD.a) * 0.25;
     float lA = dot(sA.rgb, vec3(0.2126, 0.7152, 0.0722));
     float lB = dot(sB.rgb, vec3(0.2126, 0.7152, 0.0722));

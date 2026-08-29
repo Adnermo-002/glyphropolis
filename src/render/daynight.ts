@@ -14,15 +14,15 @@ interface SkyKey {
 }
 
 const K: SkyKey[] = [
-  { h: 0,  top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.25, fogD: 1.05, stars: 0.9 },
-  { h: 4,  top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.25, fogD: 1.05, stars: 0.9 },
+  { h: 0,  top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.3, fogD: 1.05, stars: 0.9 },
+  { h: 4,  top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.3, fogD: 1.05, stars: 0.9 },
   { h: 6,  top: 0x1a1e3a, horizon: 0x6e3a4a, sun: 0xff9060, sunI: 0.5,  amb: 0.34, fogD: 0.9,  stars: 0.15 },
   { h: 8,  top: 0x3a6a9e, horizon: 0x9db8c8, sun: 0xfff0d8, sunI: 1.5,  amb: 0.62, fogD: 0.55, stars: 0 },
   { h: 12, top: 0x4a86c0, horizon: 0xb8cfd8, sun: 0xffffff, sunI: 1.75, amb: 0.72, fogD: 0.45, stars: 0 },
   { h: 17, top: 0x3a5c96, horizon: 0xc08a5a, sun: 0xffc890, sunI: 1.3,  amb: 0.58, fogD: 0.6,  stars: 0 },
   { h: 19, top: 0x201a3e, horizon: 0x8a4a3e, sun: 0xff7850, sunI: 0.4,  amb: 0.34, fogD: 0.9,  stars: 0.3 },
-  { h: 21, top: 0x050814, horizon: 0x141a2c, sun: 0x8090c0, sunI: 0.06, amb: 0.25, fogD: 1.0,  stars: 0.8 },
-  { h: 24, top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.25, fogD: 1.05, stars: 0.9 },
+  { h: 21, top: 0x050814, horizon: 0x141a2c, sun: 0x8090c0, sunI: 0.06, amb: 0.3, fogD: 1.0,  stars: 0.8 },
+  { h: 24, top: 0x02040c, horizon: 0x0a0f1e, sun: 0x8090c0, sunI: 0.05, amb: 0.3, fogD: 1.05, stars: 0.9 },
 ];
 
 const cA = new THREE.Color(), cB = new THREE.Color();

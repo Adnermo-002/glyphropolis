@@ -51,18 +51,17 @@ async function main() {
   const bloom = new Bloom();
   const hud = new Hud(hudEl);
 
-  // Spawn on a road, facing whichever compass direction holds downtown.
+  // Spawn centered on a north-south road, facing ALONG it (whichever end
+  // holds downtown) so the road's vanishing point sits dead-center.
   const sx = 3, sz = 14;
-  const dirs: [number, number, number][] = [
-    [0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2],
-  ];
+  const dirs: [number, number, number][] = [[0, -1, 0], [0, 1, Math.PI]];
   let yaw = 0, best = -1;
   for (const [dx, dz, y] of dirs) {
     const d = districtAt(seedNum, sx + dx * 300, sz + dz * 300);
     const score = d === "downtown" ? 2 : d === "midtown" ? 1 : 0;
     if (score > best) { best = score; yaw = y; }
   }
-  const player = new Player(yaw, -0.02);
+  const player = new Player(yaw, 0);
   player.x = sx; player.z = sz;
   input.yaw = yaw;
 
@@ -122,7 +121,7 @@ async function main() {
     U.uSkyTop.value.copy(dn.top);
     U.uSkyHorizon.value.copy(dn.horizon);
     U.uStars.value = dn.stars;
-    U.uExposure.value = 1.5 - dn.amb * 0.6;
+    U.uExposure.value = 1.72 - dn.amb * 0.7;
 
     weather.update(dt, dn, camera.position);
     world.update(player.x, player.z, CITY.genBudgetPerFrameMs);

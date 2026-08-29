@@ -102,7 +102,7 @@ export class Weather {
     U.uDim.value = this.dim;
     U.uWet.value = this.wet;
     U.uFogD.value = dn.fogD * this.fogMul;
-    U.uLitP.value = Math.pow(1 - dn.amb, 1.6) * 0.42 + 0.03;
+    U.uLitP.value = Math.pow(1 - dn.amb, 1.6) * 0.55 + 0.04;
 
     // lightning during real rain
     this.flashTimer -= dt * this.rain;

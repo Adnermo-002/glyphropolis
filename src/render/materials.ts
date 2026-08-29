@@ -252,7 +252,7 @@ export function makeGroundMaterial(): THREE.ShaderMaterial {
           }
         }
         float night = 1.0 - smoothstep(0.25, 0.55, uAmbient);
-        vec3 poolCol = vec3(1.0, 0.72, 0.38) * pool * night * (0.10 + 0.35 * uWet);
+        vec3 poolCol = vec3(1.0, 0.72, 0.38) * pool * night * (0.16 + 0.4 * uWet);
         col += poolCol;
 
         // wet asphalt: darker + sky reflection
