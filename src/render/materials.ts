@@ -227,13 +227,16 @@ export function makeGroundMaterial(): THREE.ShaderMaterial {
           }
           // crosswalks near intersection approaches
           float qA = roadX ? rz : rx;   // crossing road coord
-          bool nearCross = (qA > 8.6 && qA < 10.9) || (qA > uPitch - 10.9 && qA < uPitch - 8.6);
+          bool nearCross = (qA > 10.2 && qA < 12.5) || (qA > uPitch - 12.5 && qA < uPitch - 10.2);
           if (!inInter && nearCross && mod(lane, uPitch / 26.0) < uPitch / 52.0) col = vec3(0.4, 0.39, 0.34);
           spec = 1.0;
-        } else if (rx < 6.0 + 2.6 || rx > uPitch - 8.6 || rz < 6.0 + 2.6 || rz > uPitch - 8.6) {
-          // sidewalk + expansion joints
-          col = vec3(0.19, 0.19, 0.2) * (0.9 + grain * 1.6);
+        } else if (rx < 6.0 + 4.2 || rx > uPitch - 10.2 || rz < 6.0 + 4.2 || rz > uPitch - 10.2) {
+          // wide sidewalk + expansion joints
+          col = vec3(0.2, 0.2, 0.21) * (0.9 + grain * 1.6);
           if (mod(p.x, 4.0) < 0.06 || mod(p.z, 4.0) < 0.06) col *= 0.8;
+          // curb: darker strip along the road edge
+          float curbD = min(min(rx - 6.0, uPitch - 6.0 - rx), min(rz - 6.0, uPitch - 6.0 - rz));
+          if (curbD < 0.4) col *= 0.62;
           spec = 0.4;
         } else {
           // block interior concrete

@@ -13,7 +13,7 @@ export class Player {
 
   constructor(public yaw = 0, public pitch = -0.03) {}
 
-  update(dt: number, input: Input, camera: THREE.PerspectiveCamera, world: World) {
+  update(dt: number, input: Input, camera: THREE.PerspectiveCamera, world: World, obstacles?: number[]) {
     input.applyLook();
     const [f, s] = input.moveAxis();
     const speed = input.running ? PLAYER.run : PLAYER.walk;
@@ -29,6 +29,18 @@ export class Player {
     let nx = this.x + this.velX * dt;
     let nz = this.z + this.velZ * dt;
     [nx, nz] = world.collide(nx, nz, PLAYER.radius);
+    // dynamic obstacles (cars): circle pushed out of axis-aligned footprints
+    if (obstacles) {
+      for (let i = 0; i < obstacles.length; i += 4) {
+        const dx = nx - obstacles[i], dz = nz - obstacles[i + 1];
+        const ex = obstacles[i + 2] + PLAYER.radius, ez = obstacles[i + 3] + PLAYER.radius;
+        if (Math.abs(dx) < ex && Math.abs(dz) < ez) {
+          const pushX = ex - Math.abs(dx), pushZ = ez - Math.abs(dz);
+          if (pushX < pushZ) nx = obstacles[i] + Math.sign(dx || 1) * ex;
+          else nz = obstacles[i + 1] + Math.sign(dz || 1) * ez;
+        }
+      }
+    }
     this.x = nx; this.z = nz;
 
     const spd = Math.hypot(this.velX, this.velZ);

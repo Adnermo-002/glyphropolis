@@ -13,7 +13,7 @@ export class World {
   private queue: [number, number][] = [];
   private baseBox: THREE.BoxGeometry;
   private trunkGeo: THREE.CylinderGeometry;
-  private crownGeo: THREE.ConeGeometry;
+  private foliageGeo: THREE.SphereGeometry;
   private parkGeo: THREE.PlaneGeometry;
   buildingMat: THREE.ShaderMaterial;
   propsMat: THREE.ShaderMaterial;
@@ -23,7 +23,7 @@ export class World {
     this.propsMat = makePropsMaterial();
     this.baseBox = new THREE.BoxGeometry(1, 1, 1);
     this.trunkGeo = new THREE.CylinderGeometry(0.22, 0.3, 2.4, 5);
-    this.crownGeo = new THREE.ConeGeometry(1.7, 3.6, 6);
+    this.foliageGeo = new THREE.SphereGeometry(1, 7, 5);
     this.parkGeo = new THREE.PlaneGeometry(CITY.blockPitch - 12, CITY.blockPitch - 12);
     this.parkGeo.rotateX(-Math.PI / 2);
   }
@@ -109,26 +109,50 @@ export class World {
 
     if (data.trees.length) {
       const n = data.trees.length;
-      const trunks = new THREE.InstancedMesh(this.trunkGeo, this.propsMat, n);
-      const crowns = new THREE.InstancedMesh(this.crownGeo, this.propsMat, n);
+      const S = 4; // foliage spheres per tree
+      // Geometries are cloned per chunk: a shared geometry would have its
+      // bounding sphere overwritten by the latest chunk spawned, wrongly
+      // frustum-culling every earlier chunk's trees.
+      const trunkGeo = this.trunkGeo.clone();
+      const foliageGeo = this.foliageGeo.clone();
+      const trunks = new THREE.InstancedMesh(trunkGeo, this.propsMat, n);
+      const foliage = new THREE.InstancedMesh(foliageGeo, this.propsMat, n * S);
       const m = new THREE.Matrix4();
+      const col = new THREE.Color();
+      // natural foliage: one big crown sphere + 3 smaller offset ones
+      const blobs: [number, number, number, number][] = [
+        [0, 3.35, 0, 1.4],
+        [0.85, 2.5, 0.55, 0.95],
+        [-0.8, 2.65, -0.6, 1.0],
+        [0.15, 4.3, -0.3, 0.85],
+      ];
+      let fi = 0;
       for (let i = 0; i < n; i++) {
         const t = data.trees[i];
         m.makeScale(t.s, t.s, t.s); m.setPosition(t.x, 1.2 * t.s, t.z);
         trunks.setMatrixAt(i, m); trunks.setColorAt(i, new THREE.Color(0.23, 0.16, 0.1));
-        m.makeScale(t.s, t.s * (0.8 + hash2(this.seedNum, cx + i, cz) * 0.5), t.s);
-        m.setPosition(t.x, 2.4 * t.s + 1.6 * t.s, t.z);
-        crowns.setMatrixAt(i, m);
-        crowns.setColorAt(i, new THREE.Color(0.13 + hash2(this.seedNum, i, cx) * 0.1, 0.3 + hash2(this.seedNum, i, cz) * 0.14, 0.12));
+        const autumn = hash2(this.seedNum, cx + i, cz * 11) < 0.07;
+        for (let b = 0; b < S; b++) {
+          const [ox, oy, oz, r] = blobs[b];
+          const j = 0.85 + hash2(this.seedNum, cx * 5 + i * S + b, cz * 9) * 0.35;
+          m.makeScale(r * t.s * j, r * t.s * j, r * t.s * j);
+          m.setPosition(t.x + ox * t.s, oy * t.s, t.z + oz * t.s);
+          foliage.setMatrixAt(fi, m);
+          const gp = 0.24 + hash2(this.seedNum, i * S + b + 1, cx + cz * 7) * 0.15;
+          if (autumn) col.setRGB(gp * 2.1, gp * 1.1, gp * 0.25);
+          else col.setRGB(gp * 0.55, gp * 1.5, gp * 0.5);
+          foliage.setColorAt(fi, col);
+          fi++;
+        }
       }
       this.setChunkBounds(trunks, cx, cz, 40);
-      this.setChunkBounds(crowns, cx, cz, 40);
-      group.add(trunks, crowns);
+      this.setChunkBounds(foliage, cx, cz, 40);
+      group.add(trunks, foliage);
     }
 
     if (data.park) {
       // park lawn as a 1-instance InstancedMesh so instanceColor carries the tint
-      const one = new THREE.InstancedMesh(this.parkGeo, this.propsMat, 1);
+      const one = new THREE.InstancedMesh(this.parkGeo.clone(), this.propsMat, 1);
       const m = new THREE.Matrix4(); m.setPosition(ox, 0.02, oz);
       one.setMatrixAt(0, m); one.setColorAt(0, new THREE.Color(0.09, 0.2, 0.08));
       this.setChunkBounds(one, cx, cz, 40);
@@ -150,8 +174,7 @@ export class World {
     c.group.traverse((o) => {
       const im = o as THREE.InstancedMesh;
       if (im.isInstancedMesh) {
-        if (im.geometry !== this.baseBox && im.geometry !== this.trunkGeo &&
-            im.geometry !== this.crownGeo && im.geometry !== this.parkGeo) im.geometry.dispose();
+        im.geometry.dispose(); // every chunk mesh owns a cloned geometry
         if (im.instanceColor) im.instanceColor = null as unknown as THREE.InstancedBufferAttribute;
       }
     });

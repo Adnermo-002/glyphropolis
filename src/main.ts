@@ -51,9 +51,21 @@ async function main() {
   const bloom = new Bloom();
   const hud = new Hud(hudEl);
 
-  // Spawn centered on a north-south road, facing ALONG it (whichever end
-  // holds downtown) so the road's vanishing point sits dead-center.
-  const sx = 3, sz = 14;
+  // Spawn on the west sidewalk of a north-south road, facing ALONG it
+  // (whichever end holds downtown). ?at=park starts inside the nearest park.
+  let sx = 7.2, sz = 14;
+  if (params.get("at") === "park") {
+    const P0 = CITY.blockPitch;
+    outer: for (let r = 0; r < 10; r++) {
+      for (let cx = -r; cx <= r; cx++) for (let cz = -r; cz <= r; cz++) {
+        if (Math.max(Math.abs(cx), Math.abs(cz)) !== r) continue;
+        if (districtAt(seedNum, cx * P0 + 26, cz * P0 + 26) === "park") {
+          sx = cx * P0 + 26; sz = cz * P0 + 26;
+          break outer;
+        }
+      }
+    }
+  }
   const dirs: [number, number, number][] = [[0, -1, 0], [0, 1, Math.PI]];
   let yaw = 0, best = -1;
   for (const [dx, dz, y] of dirs) {
@@ -132,7 +144,7 @@ async function main() {
     traffic.update(dt, player.x, player.z);
 
     if (bloom.controlUnlocked) {
-      player.update(dt, input, camera, world);
+      player.update(dt, input, camera, world, traffic.obstaclesNear(player.x, player.z));
     } else {
       camera.position.set(player.x, PLAYER.eye, player.z);
       camera.rotation.order = "YXZ";

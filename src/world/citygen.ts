@@ -47,8 +47,8 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
   // landmark? one special tower per rare chunk
   const isLandmark = hash2(seed ^ 0xbeef, cx, cz) < 0.02;
 
-  // 2x2 lots inside the block, keeping clear of sidewalks
-  const inner0 = 6 + 3.4, inner1 = P - 6 - 3.4;
+  // 2x2 lots inside the block, keeping clear of the (wide) sidewalks
+  const inner0 = 6 + 4.8, inner1 = P - 6 - 4.8;
   const lotW = (inner1 - inner0) / 2;
   for (let lx = 0; lx < 2; lx++) for (let lz = 0; lz < 2; lz++) {
     const r0 = hash2(seed, cx * 2 + lx, cz * 2 + lz);
@@ -60,7 +60,7 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
 
     if (isLandmark && lx === 0 && lz === 0) {
       const h = 120 + r2 * 70;
-      const s = 13 + r3 * 5;
+      const s = 12 + r3 * 3;
       const t: number[] = [0.3, 0.34, 0.44];
       data.boxes.push(mk(lotCX, lotCZ, s, h, s, t, r0));
       data.boxes.push(mk(lotCX, lotCZ, s * 0.55, h * 0.32, s * 0.55, t, r0, h));
@@ -98,6 +98,19 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
     if (sy > 46) {
       data.boxes.push(mk(lotCX, lotCZ, sx * 0.68, sy * 0.34, sz * 0.68, col, r3, sy));
       if (sy > 78) data.boxes.push(mk(lotCX, lotCZ, sx * 0.42, sy * 0.28, sz * 0.42, col, r3, sy * 1.34));
+    }
+  }
+
+  // street trees planted on the sidewalks (sparse downtown, lush elsewhere)
+  {
+    const density = district === "downtown" ? 0.3 : 0.6;
+    for (let k = 0; k < 4; k++) {
+      if (hash2(seed, cx * 17 + k, cz * 5) < density) {
+        data.trees.push({ x: ox + 9.2, z: oz + 18 + k * 11 + hash2(seed, cx + k, cz * 3) * 4, s: 0.75 + hash2(seed, cx * 2 + k, cz) * 0.4 });
+      }
+      if (hash2(seed, cx * 5, cz * 17 + k) < density) {
+        data.trees.push({ x: ox + 18 + k * 11 + hash2(seed, cx * 3, cz + k) * 4, z: oz + 9.2, s: 0.75 + hash2(seed, cx, cz * 2 + k) * 0.4 });
+      }
     }
   }
   return data;

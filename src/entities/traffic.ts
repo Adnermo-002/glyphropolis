@@ -38,6 +38,7 @@ export class Traffic {
   private e = new THREE.Euler();
   private v = new THREE.Vector3();
   private fwd = new THREE.Vector3();
+  private obst = new Float32Array(0);
   private rng: () => number;
 
   constructor(scene: THREE.Scene, seed: number) {
@@ -86,6 +87,7 @@ export class Traffic {
   update(dt: number, px: number, pz: number) {
     const P = CITY.blockPitch;
     const n = this.cars.length;
+    if (this.obst.length !== n * 4) this.obst = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
       const c = this.cars[i];
       c.along += c.dir * c.speed * dt;
@@ -98,6 +100,10 @@ export class Traffic {
       const roadC = c.roadIdx * P + 3 + c.lane;
       const wx = c.axis === 0 ? roadC : c.along;
       const wz = c.axis === 0 ? c.along : roadC;
+      this.obst[i * 4] = wx; this.obst[i * 4 + 1] = wz;
+      // half-extents of the axis-aligned footprint (car length along travel axis)
+      this.obst[i * 4 + 2] = c.axis === 0 ? 1.0 : 2.15;
+      this.obst[i * 4 + 3] = c.axis === 0 ? 2.15 : 1.0;
       const rotY = c.axis === 0 ? (c.dir === 1 ? 0 : Math.PI) : (c.dir === 1 ? -Math.PI / 2 : Math.PI / 2);
       this.e.set(0, rotY, 0); this.q.setFromEuler(this.e);
       this.fwd.set(0, 0, 1).applyQuaternion(this.q);
@@ -115,5 +121,17 @@ export class Traffic {
     this.bodies.instanceMatrix.needsUpdate = true;
     this.heads.instanceMatrix.needsUpdate = true;
     this.tails.instanceMatrix.needsUpdate = true;
+  }
+
+  // Axis-aligned car footprints near (px,pz), flattened [x,z,hx,hz] —
+  // dynamic obstacles so traffic pushes the player instead of clipping through.
+  obstaclesNear(px: number, pz: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.obst.length; i += 4) {
+      if (Math.abs(this.obst[i] - px) < 6 && Math.abs(this.obst[i + 1] - pz) < 6) {
+        out.push(this.obst[i], this.obst[i + 1], this.obst[i + 2], this.obst[i + 3]);
+      }
+    }
+    return out;
   }
 }
