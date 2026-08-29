@@ -145,7 +145,11 @@ const FRAG = `
 
     // Bloom reveal: radial wave from screen center; front band scrambles
     if (uRevealOn > 0.5) {
-      float r = distance(cid, uRevealC);
+              // aspect-corrected distance: cells are twice as tall as wide, so
+        // raw cell-space distance would sweep an ellipse on screen
+        vec2 rel = cid - uRevealC;
+        rel.x *= uCellPx.x / uCellPx.y;
+        float r = length(rel);
       if (r > uRevealR) {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;

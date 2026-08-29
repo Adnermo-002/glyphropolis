@@ -116,6 +116,8 @@ async function main() {
     bootDone = true;
     bootC.hidden = true;
     bloom.start(tm.gridW, tm.gridH, tm, fast);
+    const wv = parseFloat(params.get("wave") || "");
+    if (!Number.isNaN(wv)) bloom.freezeAt(wv);
   });
   requestAnimationFrame(pregen);
 
