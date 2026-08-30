@@ -27,3 +27,25 @@ canvas#boot {
   position: absolute; bottom: 14px; left: 16px;
   font-size: 12px; opacity: 0.75; white-space: pre;
 }
+#rail {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  opacity: 0.92;
+}
+#charge {
+  position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  width: 12px; height: 230px;
+  border: 1px solid rgba(125, 255, 169, 0.55); background: rgba(0, 10, 4, 0.55);
+}
+#chargeFill {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 0%;
+  background: rgba(125, 255, 169, 0.85);
+  box-shadow: 0 0 10px rgba(80, 255, 140, 0.55);
+}
+#chargeTxt {
+  position: absolute; bottom: calc(100% + 6px); left: -14px; width: 42px;
+  font-size: 11px; text-align: center;
+}
+#vig {
+  position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 44%, rgba(0,0,0,0.9) 100%);
+}

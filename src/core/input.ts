@@ -53,4 +53,8 @@ export class Input {
   }
 
   get running(): boolean { return this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"); }
+
+  // Shuttle: holding E on a solid surface charges an Eject; in the air it
+  // deliberately does nothing (ADR 0002).
+  get ejectHeld(): boolean { return this.keys.has("KeyE"); }
 }

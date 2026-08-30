@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CITY, ROAD } from "../config";
+import { CITY, ROAD, SHUTTLE } from "../config";
 import { hash2 } from "../core/rng";
 import { genChunk, ChunkData } from "./citygen";
 import { makeBuildingMaterial, makePropsMaterial, makeLampGlowMaterial } from "../render/materials";
@@ -244,6 +244,91 @@ export class World {
       }
     }
     return [x, z];
+  }
+
+  // 3D collision for the Shuttle: the body spans [py - eye, py]. Sweeps the
+  // feet across rooftop tops and the street plane, the head against tier
+  // undersides, then pushes the circle out of walls. Returns
+  // [x, y, z, land, bump]; land: 0 none / 1 soft touchdown / 2 hard descent.
+  collide3D(px: number, py: number, pz: number, prevFeet: number, velY: number,
+            r: number, eye: number): [number, number, number, number, number] {
+    const P = CITY.blockPitch;
+    const pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
+    let x = px, y = py, z = pz;
+    let land = 0, bump = 0;
+    const feet = y - eye, head = y + 0.12;
+
+    if (velY <= 0) {
+      // highest surface crossed while descending (swept band guards tunneling)
+      let best = feet <= 0.02 ? 0 : -1;
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const c = this.live.get(key(pcx + dx, pcz + dz));
+        if (!c) continue;
+        for (const b of c.data.boxes) {
+          const top = b.y0 + b.sy;
+          if (top > prevFeet + 0.02 || top < feet - 2.9) continue;
+          if (Math.abs(x - b.x) < b.sx / 2 + 0.2 && Math.abs(z - b.z) < b.sz / 2 + 0.2 && top > best) best = top;
+        }
+      }
+      if (best >= 0 && feet <= best + 0.03) {
+        y = best + eye;
+        land = velY <= -SHUTTLE.heavyLandV ? 2 : 1;
+      }
+    } else {
+      // rising into a tier underside
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const c = this.live.get(key(pcx + dx, pcz + dz));
+        if (!c) continue;
+        for (const b of c.data.boxes) {
+          if (b.y0 < 1.0) continue;
+          const bot = b.y0;
+          if (bot < head - 2.9 || bot > head + 0.02) continue;
+          if (Math.abs(x - b.x) < b.sx / 2 && Math.abs(z - b.z) < b.sz / 2) {
+            y = Math.min(y, bot - 0.13); bump = 1;
+          }
+        }
+      }
+    }
+
+    // walls: push the circle out of boxes overlapping the body vertically
+    for (let pass = 0; pass < 2; pass++) {
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const c = this.live.get(key(pcx + dx, pcz + dz));
+        if (!c) continue;
+        for (const b of c.data.boxes) {
+          const top = b.y0 + b.sy, bot = b.y0;
+          if (bot >= y - 0.02 || top <= y - eye + 0.02) continue;
+          const nx2 = Math.max(b.x - b.sx / 2, Math.min(x, b.x + b.sx / 2));
+          const nz2 = Math.max(b.z - b.sz / 2, Math.min(z, b.z + b.sz / 2));
+          const ddx = x - nx2, ddz = z - nz2;
+          const d2 = ddx * ddx + ddz * ddz;
+          if (d2 < r * r) {
+            const d = Math.sqrt(d2) || 1e-4;
+            const push = (r - d) / d;
+            if (d2 > 1e-8) { x += ddx * push; z += ddz * push; }
+            else { x = b.x + (b.sx / 2 + r) * (x >= b.x ? 1 : -1); }
+          }
+        }
+      }
+    }
+    return [x, y, z, land, bump];
+  }
+
+  // highest solid surface at (px, pz) at or below belowY (street = 0)
+  surfaceHeight(px: number, pz: number, belowY: number): number {
+    const P = CITY.blockPitch;
+    const pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
+    let best = 0;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const c = this.live.get(key(pcx + dx, pcz + dz));
+      if (!c) continue;
+      for (const b of c.data.boxes) {
+        const top = b.y0 + b.sy;
+        if (top > belowY) continue;
+        if (Math.abs(px - b.x) < b.sx / 2 + 0.2 && Math.abs(pz - b.z) < b.sz / 2 + 0.2 && top > best) best = top;
+      }
+    }
+    return best;
   }
 
   // boxes for minimap: [x, z, sx, sz] of near chunks

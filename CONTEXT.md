@@ -59,3 +59,23 @@ _Avoid_: loading screen, splash, intro
 **Bloom (绽放)**:
 The opening reveal in which the Textmode sweeps outward from the center Cell of the screen like a wave, materializing the City around the player.
 _Avoid_: intro animation, reveal effect, transition
+
+**Eject (弹射)**:
+The act of charging (holding E) and releasing an upward launch from any solid surface the player stands on. Charge time decides launch strength.
+_Avoid_: jump, teleport, warp
+
+**Charge (蓄力)**:
+The held state before an Eject: a vertical bar on the left edge of the screen fills while the screen corners darken, previewing the launch height. Releasing E fires the launch.
+_Avoid_: loading, cooldown, meter
+
+**Shuttle (穿梭机)**:
+The movement mode after an Eject: inertial gliding with soft gravity, SHIFT thrusting along the look direction. It replaces the Walk until the next Touchdown. Not a vehicle, not a fly camera — a body in glide.
+_Avoid_: fly mode, jetpack, noclip
+
+**Touchdown (落地)**:
+The moment the Shuttle meets any solid surface and the mode ends. Soft if the descent is gentle; heavy landings bounce once with a screen shake before settling.
+_Avoid_: landing animation, crash, respawn
+
+**Altitude Rail (海拔线)**:
+The vertical scale docked at the right edge of the screen while shuttling: a tick every 10 m, a labelled line every 50 m, a pointer at the player's absolute altitude (street level = 0 m).
+_Avoid_: minimap, radar, minimeter

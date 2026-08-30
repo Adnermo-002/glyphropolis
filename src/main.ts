@@ -1,6 +1,5 @@
 import "./style.css";
-import { CITY, seedFromURL } from "./config";
-import { PLAYER } from "./config";
+import { CAMERA, CITY, PLAYER, SHUTTLE, seedFromURL } from "./config";
 import { hashString } from "./core/rng";
 import { Input } from "./core/input";
 import { buildScene } from "./render/scene";
@@ -76,6 +75,9 @@ async function main() {
   const player = new Player(yaw, 0);
   player.x = sx; player.z = sz;
   input.yaw = yaw;
+  // debug: ?shuttle=<alt> spawns already gliding (rail + HUD verification)
+  const shuttleAlt = parseFloat(params.get("shuttle") || "");
+  if (!Number.isNaN(shuttleAlt)) { player.mode = "shuttle"; player.y = PLAYER.eye + Math.max(3, shuttleAlt); }
 
   let crtTarget = crtStart ? 1 : 0;
   tm.u.uCrt.value = crtTarget;
@@ -148,13 +150,20 @@ async function main() {
     if (bloom.controlUnlocked) {
       player.update(dt, input, camera, world, traffic.obstaclesNear(player.x, player.z));
     } else {
-      camera.position.set(player.x, PLAYER.eye, player.z);
+      camera.position.set(player.x, player.y, player.z);
       camera.rotation.order = "YXZ";
       camera.rotation.y = input.yaw;
       camera.rotation.x = input.pitch;
     }
 
     const P = CITY.blockPitch;
+    // shuttle speed stretches the fov a touch (52 -> 58)
+    const spd3 = Math.hypot(player.velX, player.velZ, player.velY * 0.6);
+    const tf = CAMERA.fovY + Math.min(spd3 / SHUTTLE.capHBoost, 1) * 6;
+    if (Math.abs(camera.fov - tf) > 0.05) {
+      camera.fov += (tf - camera.fov) * Math.min(1, dt * 6);
+      camera.updateProjectionMatrix();
+    }
     ground.position.set(Math.round(player.x / P) * P, 0, Math.round(player.z / P) * P);
     sky.position.copy(camera.position);
 
