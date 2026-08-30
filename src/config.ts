@@ -24,6 +24,7 @@ export const SHUTTLE = {
   gravity: 4.0,      // m/s^2 soft gravity
   liftK: 0.085,      // lift per horizontal m/s (caps at 85% of gravity)
   thrust: 26,        // Space thrust along the look direction (m/s^2)
+  upBoost: 0.9,      // extra climb when pitched up (x1 -> x1.9 vertical)
   accelF: 15,        // W/S pitch-plane accel
   grip: 3.5,         // lateral damping: velocity follows the nose
   brake: 30,         // Shift active brake (m/s^2 against velocity)

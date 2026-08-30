@@ -129,14 +129,15 @@ export class Player {
       this.velZ += (wz / wl) * SHUTTLE.accelF * dt;
     }
 
-    // Space: thrust along the full look direction, pitch included
+    // Space: thrust along the full look direction, pitch included; looking
+    // up climbs harder (up-boost scales the vertical component)
     if (input.ejectHeld) {
       const cp = Math.cos(input.pitch), sp = Math.sin(input.pitch);
       const fade = Math.min(1, Math.max(0.1,
         (SHUTTLE.ceiling + SHUTTLE.ceilingFade - this.y) / SHUTTLE.ceilingFade));
       this.velX += -sin * cp * SHUTTLE.thrust * fade * dt;
       this.velZ += -cos * cp * SHUTTLE.thrust * fade * dt;
-      this.velY += sp * SHUTTLE.thrust * fade * dt;
+      this.velY += sp * SHUTTLE.thrust * (1 + Math.max(0, sp) * SHUTTLE.upBoost) * fade * dt;
     }
 
     // Shift: active brake against the velocity, never through zero
