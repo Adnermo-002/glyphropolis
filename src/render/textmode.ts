@@ -11,6 +11,7 @@ import { buildAtlas, GLYPHS } from "./atlas";
 export class Textmode {
   gridW = 2; gridH = 2;
   private rt: THREE.WebGLRenderTarget;
+  private rtDepth: THREE.DepthTexture | null = null;
   private quadScene = new THREE.Scene();
   private quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private mat: THREE.ShaderMaterial;
@@ -19,6 +20,7 @@ export class Textmode {
 
   readonly u = {
     tScene: { value: null as THREE.Texture | null },
+    tDepth: { value: null as THREE.Texture | null },
     tAtlas: { value: null as THREE.Texture | null },
     uGrid: { value: new THREE.Vector2(2, 2) },
     uCellPx: { value: new THREE.Vector2(8, 16) },
@@ -65,7 +67,21 @@ export class Textmode {
     const cw = w / this.gridW, ch = h / this.gridH;
     this.u.uGrid.value.set(this.gridW, this.gridH);
     this.u.uCellPx.value.set(cw, ch);
-    this.rt.setSize(this.gridW * TEXTMODE.supersample, this.gridH * TEXTMODE.supersample);
+    // recreate the RT with a depth texture whenever the size changes: the
+    // glyph pass reads depth for cornice (layer-step) edges
+    const w2 = this.gridW * TEXTMODE.supersample, h2 = this.gridH * TEXTMODE.supersample;
+    if (w2 !== this.rt.width || h2 !== this.rt.height) {
+      this.rt.dispose();
+      this.rt = new THREE.WebGLRenderTarget(w2, h2, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: true,
+        stencilBuffer: false,
+      });
+      this.rtDepth = new THREE.DepthTexture(w2, h2);
+      this.rtDepth.type = THREE.UnsignedIntType;
+      this.rt.depthTexture = this.rtDepth;
+    }
     // rebuild atlas only when the device-pixel cell size changed materially
     const rw = Math.round(cw), rh = Math.round(ch);
     if (!this.atlasTex || Math.abs(rw - this.atlasCell[0]) > 0 || Math.abs(rh - this.atlasCell[1]) > 0) {
@@ -86,6 +102,7 @@ export class Textmode {
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
     this.u.tScene.value = this.rt.texture;
+    if (this.rt.depthTexture) this.u.tDepth.value = this.rt.depthTexture;
     renderer.render(this.quadScene, this.quadCam);
   }
 
@@ -95,7 +112,7 @@ export class Textmode {
 }
 
 const FRAG = `
-  uniform sampler2D tScene; uniform sampler2D tAtlas;
+  uniform sampler2D tScene; uniform sampler2D tAtlas; uniform sampler2D tDepth;
   uniform vec2 uGrid; uniform vec2 uCellPx; uniform vec2 uAtlasGrid;
   uniform float uRampLen; uniform float uEdgeV; uniform float uEdgeH; uniform float uGlyphCount;
   uniform float uTime; uniform float uRevealOn; uniform float uRevealR;
@@ -142,6 +159,18 @@ const FRAG = `
     vec3 fg = clamp(c * (0.7 + 1.5 * L) + hue * 0.22, 0.0, 1.0);
     vec3 bg = c * c * (sky ? 0.35 : 0.3);
     if (sky) { fg *= 0.9; }
+
+    // cornice: a depth jump to the cell above marks a rooftop / setback edge
+    // (asciicker layer-step trick) where the luminance Sobel saw nothing
+    if (!sky && uRevealOn < 0.5) {
+      vec2 uvD = (cid + vec2(0.5)) / g;
+      float dC = texture2D(tDepth, uvD).x;
+      float dU = texture2D(tDepth, uvD + vec2(0.0, 1.0) / g).x;
+      float zn = 0.1 * 460.0, zf = 460.0;
+      float zC = zn / (zf - dC * (zf - zn));
+      float zU = zn / (zf - dU * (zf - zn));
+      if (zU - zC > 3.0) { gi = uEdgeH; fg = mix(fg, bg, 0.45); }
+    }
 
     // Bloom reveal: radial wave from screen center; front band scrambles
     if (uRevealOn > 0.5) {

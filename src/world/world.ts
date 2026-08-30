@@ -92,6 +92,7 @@ export class World {
       const n = data.boxes.length;
       const geo = this.baseBox.clone();
       const aSeed = new Float32Array(n), aOrigin = new Float32Array(n * 3), aScale = new Float32Array(n * 3);
+      const aStyle = new Float32Array(n);
       const mesh = new THREE.InstancedMesh(geo, this.buildingMat, n);
       const m = new THREE.Matrix4();
       for (let i = 0; i < n; i++) {
@@ -101,10 +102,12 @@ export class World {
         mesh.setMatrixAt(i, m);
         mesh.setColorAt(i, new THREE.Color(b.r, b.g, b.b));
         aSeed[i] = b.seed;
+        aStyle[i] = b.st;
         aOrigin.set([b.x, b.y0, b.z], i * 3);
         aScale.set([b.sx, b.sy, b.sz], i * 3);
       }
       geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(aSeed, 1));
+      geo.setAttribute("aStyle", new THREE.InstancedBufferAttribute(aStyle, 1));
       geo.setAttribute("aOrigin", new THREE.InstancedBufferAttribute(aOrigin, 3));
       geo.setAttribute("aScale", new THREE.InstancedBufferAttribute(aScale, 3));
       mesh.instanceMatrix.needsUpdate = true;

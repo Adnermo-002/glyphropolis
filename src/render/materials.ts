@@ -31,6 +31,7 @@ vec3 applyFog(vec3 col, vec3 worldPos, vec3 camPos, vec3 fogColor, float fogD, f
   float d = distance(worldPos, camPos);
   float k = fogD * 0.0032;
   float f = 1.0 - exp(-d*d*k*k);
+  f = floor(f * 8.0 + 0.5) / 8.0; // stepped fog: distance walks the palette
   col = mix(col, fogColor * (1.0 + flash*2.5), clamp(f, 0.0, 1.0));
   return col;
 }
@@ -42,10 +43,11 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
     uniforms: U,
     vertexShader: `
       attribute float aSeed;
+      attribute float aStyle;
       attribute vec3 aOrigin;
       attribute vec3 aScale;
       varying vec3 vWorld; varying vec3 vNormal; varying vec3 vColor;
-      varying float vSeed; varying vec3 vOrigin; varying vec3 vScale;
+      varying float vSeed; varying vec3 vOrigin; varying vec3 vScale; varying float vStyle;
       void main(){
         vec4 lp = vec4(position, 1.0);
         vec3 ln = normal;
@@ -56,7 +58,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vec4 wp = modelMatrix * lp;
         vWorld = wp.xyz;
         vNormal = normalize(mat3(modelMatrix) * ln);
-        vSeed = aSeed; vOrigin = aOrigin; vScale = aScale;
+        vSeed = aSeed; vOrigin = aOrigin; vScale = aScale; vStyle = aStyle;
         #ifdef USE_INSTANCING_COLOR
           vColor = instanceColor;
         #else
@@ -70,7 +72,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       uniform float uAmbient; uniform vec3 uFogColor; uniform float uFogD; uniform float uFlash;
       uniform float uDim; uniform float uLitP; uniform vec3 uSkyHorizon; uniform float uWet;
       varying vec3 vWorld; varying vec3 vNormal; varying vec3 vColor;
-      varying float vSeed; varying vec3 vOrigin; varying vec3 vScale;
+      varying float vSeed; varying vec3 vOrigin; varying vec3 vScale; varying float vStyle;
       ${GLSL_HASH}
       ${GLSL_FOG}
       const vec3 NEON[5] = vec3[5](
@@ -95,19 +97,29 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float halfU = (xFace ? vScale.z : vScale.x) * 0.5;
           float v = vWorld.y;
 
-          vec2 cell = vec2(u / 3.4, v / 3.05);
+          // per-style window grammar (ADR 0003 remix): rowhouses get tall
+          // wide windows on banded floors, towers a glassier grid
+          float cw = vStyle > 0.5 && vStyle < 1.5 ? 2.7 : 3.4;
+          float ch = vStyle > 0.5 && vStyle < 1.5 ? 2.7 : 3.05;
+          float winL = vStyle > 0.5 && vStyle < 1.5 ? 0.1 : 0.16;
+          float winR = vStyle > 0.5 && vStyle < 1.5 ? 0.92 : 0.84;
+          vec2 cell = vec2(u / cw, v / ch);
           vec2 id = floor(cell);
           vec2 f = fract(cell);
-          bool glass = f.x > 0.16 && f.x < 0.84 && f.y > 0.22 && f.y < 0.82;
+          bool glass = f.x > winL && f.x < winR && f.y > 0.22 && f.y < 0.82;
           // keep ground floor mostly solid (lobby)
           if (v - vOrigin.y < 3.2) glass = glass && h21(id + vSeed) > 0.72;
 
           float wh = h21(id * 7.31 + vSeed * 3.7);
-          float lit = step(wh, uLitP);
+          float lp2 = uLitP * (vStyle > 2.5 ? 1.3 : 1.0); // antenna towers: more glass lit
+          float lit = step(wh, lp2);
+          // flicker + the slow window-breathing pulse (asciicity remix)
           float flick = 0.82 + 0.28 * sin(uTime * (1.0 + 5.0 * wh) + wh * 61.0);
+          flick *= 0.88 + 0.12 * sin(uTime * 0.9 + wh * 40.0);
           if (h21(id + vSeed + 4.2) < 0.06) flick *= step(0.4, fract(uTime * 0.7 + wh * 9.0));
           vec3 winCol = wh > 0.93 ? NEON[int(wh * 71.0) % 5] * 0.9
-                      : wh > 0.5 ? vec3(1.0, 0.78, 0.5) : vec3(0.72, 0.82, 1.0);
+                      : wh > 0.62 ? vec3(1.0, 0.78, 0.5)
+                      : wh > 0.4 ? vec3(0.9, 0.72, 0.42) : vec3(0.62, 0.74, 1.0);
           if (glass) {
             // unlit glass reflects sky; lit glass emits
             vec3 refl = mix(uSkyHorizon * 0.34, vec3(0.05, 0.07, 0.1), 0.4 + 0.6 * abs(dot(n, vec3(0,0,1))));
@@ -116,10 +128,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           } else {
             base *= 0.66 + 0.12 * h21(floor(cell) + vSeed); // mullion variation
           }
+          // floor-slab band darkens each storey line -> '=' glyphs in textmode
+          if (f.y < 0.09) base *= 0.72;
 
-          // vertical neon sign strip near one facade edge (~35% of buildings)
+          // vertical neon sign strip near one facade edge (~35% of buildings;
+          // rowhouses skip it)
           float sh = h11(vSeed * 5.13);
-          if (sh < 0.45) {
+          if (sh < 0.45 && !(vStyle > 0.5 && vStyle < 1.5)) {
             float side = sh < 0.175 ? 1.0 : -1.0;
             float bandU = side * (halfU - 0.65 - lu);
             vec3 vDir = xFace ? vec3(0,1,0) : vec3(0,1,0);

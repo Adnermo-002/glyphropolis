@@ -2,7 +2,7 @@ import { CITY, ROAD } from "../config";
 import { hash2, fbm, clamp } from "../core/rng";
 
 export interface BoxDef { x: number; y0: number; z: number; sx: number; sy: number; sz: number;
-  r: number; g: number; b: number; seed: number; }
+  r: number; g: number; b: number; seed: number; st: number; }
 export interface ChunkData {
   cx: number; cz: number; park: boolean;
   boxes: BoxDef[];
@@ -74,6 +74,39 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
       continue;
     }
 
+    // 40% of lots grow one of the reference-remix prototypes (ADR 0003):
+    // rowhouses (residential), ledge towers (midtown), antenna towers
+    // (downtown); the landmark above already carries the cornice look.
+    if (hash2(seed ^ 0x77aa, cx * 4 + lx, cz * 4 + lz) < 0.4) {
+      const t2 = district === "downtown" ? TINTS_DOWNTOWN : district === "midtown" ? TINTS_MID
+        : district === "residential" ? TINTS_RES : TINTS_IND;
+      const tint2 = t2[Math.floor(r0 * t2.length) % t2.length];
+      const bright2 = 0.55 + r1 * 0.45;
+      const col2 = [tint2[0] * bright2, tint2[1] * bright2, tint2[2] * bright2];
+      if (district === "residential") {
+        // rowhouses: two low blocks shoulder to shoulder, banded floors
+        const hw = Math.min((lotW - 1.6) / 2, 7.5);
+        const dep = 8 + r3 * 4;
+        data.boxes.push(mk(lotCX - hw / 2 - 0.2, lotCZ, hw, 5.5 + r1 * 6, dep, col2, r2, 0, 1));
+        data.boxes.push(mk(lotCX + hw / 2 + 0.2, lotCZ, hw, 5.5 + r2 * 6, dep, col2, r3, 0, 1));
+      } else if (district === "midtown") {
+        // ledge tower: slabs ring the shaft at 1/3 and 2/3 height
+        const h = 16 + Math.pow(r2, 1.3) * 34;
+        const w = Math.min(10 + r0 * 5, lotW - 1.6);
+        data.boxes.push(mk(lotCX, lotCZ, w, h, w, col2, r3, 0, 2));
+        data.boxes.push(mk(lotCX, lotCZ, w * 1.07, 0.5, w * 1.07, col2, r3, h / 3, 2));
+        data.boxes.push(mk(lotCX, lotCZ, w * 1.07, 0.5, w * 1.07, col2, r3, h * 2 / 3, 2));
+      } else {
+        // antenna tower: glassy shaft + rooftop masts
+        const h = 34 + Math.pow(r2, 1.5) * 72;
+        const w = Math.min(10 + r0 * 5, lotW - 1.6);
+        data.boxes.push(mk(lotCX, lotCZ, w, h, w, col2, r3, 0, 3));
+        data.boxes.push(mk(lotCX, lotCZ, 0.4, 7 + r1 * 9, 0.4, [0.16, 0.16, 0.18], r3, h, 3));
+        if (r2 > 0.55) data.boxes.push(mk(lotCX + w * 0.2, lotCZ - w * 0.2, 0.3, 4 + r0 * 5, 0.3, [0.16, 0.16, 0.18], r3, h, 3));
+      }
+      continue;
+    }
+
     let sy = 0, sx = 0, sz = 0;
     const tints = district === "downtown" ? TINTS_DOWNTOWN : district === "midtown" ? TINTS_MID
       : district === "residential" ? TINTS_RES : TINTS_IND;
@@ -119,7 +152,7 @@ export function genChunk(seed: number, cx: number, cz: number): ChunkData {
 }
 
 function mk(x: number, z: number, sx: number, sy: number, sz: number,
-  c: number[], r: number, y0 = 0): BoxDef {
+  c: number[], r: number, y0 = 0, st = 0): BoxDef {
   const b = clamp(0.72 + r * 0.5, 0.6, 1.15);
-  return { x, y0, z, sx, sy, sz, r: c[0] * b, g: c[1] * b, b: c[2] * b, seed: r * 997 };
+  return { x, y0, z, sx, sy, sz, r: c[0] * b, g: c[1] * b, b: c[2] * b, seed: r * 997, st };
 }
