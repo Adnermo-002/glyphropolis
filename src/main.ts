@@ -76,14 +76,13 @@ async function main() {
   const player = new Player(yaw, 0);
   player.x = sx; player.z = sz;
   input.yaw = yaw;
-  // debug: ?shuttle=<alt> spawns already gliding (rail + HUD verification);
-  // ?gravity=<n> overrides the fall rate so headless runs can land in-frame
+  // debug: ?shuttle=<alt> spawns already gliding (rail + HUD verification)
   const shuttleAlt = parseFloat(params.get("shuttle") || "");
   if (!Number.isNaN(shuttleAlt)) { player.mode = "shuttle"; player.y = PLAYER.eye + Math.max(3, shuttleAlt); }
-  const gParam = parseFloat(params.get("gravity") || "");
-  if (!Number.isNaN(gParam)) SHUTTLE.gravity = gParam;
 
   let crtTarget = crtStart ? 1 : 0;
+  // debug: ?at=roof drops the player onto the nearest usable rooftop
+  let roofPlaced = params.get("at") !== "roof";
   tm.u.uCrt.value = crtTarget;
   input.onKey = (code) => {
     if (code === "KeyC") crtTarget = crtTarget ? 0 : 1;
@@ -152,6 +151,15 @@ async function main() {
     traffic.update(dt, player.x, player.z);
 
     if (bloom.controlUnlocked) {
+      if (!roofPlaced) {
+        const spot = world.findRoofNear(player.x, player.z, 90);
+        if (spot) {
+          player.x = spot.x; player.z = spot.z;
+          player.y = spot.top + PLAYER.eye;
+          player.mode = "walk"; player.velX = 0; player.velZ = 0;
+          roofPlaced = true;
+        }
+      }
       player.update(dt, input, camera, world, traffic.obstaclesNear(player.x, player.z));
     } else {
       camera.position.set(player.x, player.y, player.z);

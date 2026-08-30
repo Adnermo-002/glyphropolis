@@ -76,7 +76,7 @@ export class Player {
 
     let nx = this.x + this.velX * dt;
     let nz = this.z + this.velZ * dt;
-    [nx, nz] = world.collide(nx, nz, PLAYER.radius);
+    [nx, nz] = world.collide(nx, nz, PLAYER.radius, this.y - PLAYER.eye);
     // dynamic obstacles (cars): circle pushed out of axis-aligned footprints
     if (obstacles) {
       for (let i = 0; i < obstacles.length; i += 4) {
@@ -108,9 +108,8 @@ export class Player {
       this.charge = Math.min(1, this.charge + dt / SHUTTLE.chargeTime);
       this.charging = true;
     } else if (this.charging) {
-      const h = SHUTTLE.hMin + (SHUTTLE.hMax - SHUTTLE.hMin) * this.charge;
       this.mode = "shuttle";
-      this.velY = Math.sqrt(2 * SHUTTLE.gravity * h);
+      this.velY = SHUTTLE.ejectV0 + SHUTTLE.ejectV1 * this.charge;
       this.charge = 0; this.charging = false;
     }
 
@@ -157,10 +156,7 @@ export class Player {
     this.velX = fwdX * vF + rX * nS;
     this.velZ = fwdZ * vF + rZ * nS;
 
-    // soft gravity countered by speed-lift: fast flight holds altitude
-    const lift = Math.min(this.hSpeed * SHUTTLE.liftK, SHUTTLE.gravity * 0.85);
-    this.velY -= (SHUTTLE.gravity - lift) * dt;
-
+    // weightless: no gravity, drag alone settles the drift (ADR 0002 rev 2)
     const dh = Math.exp(-SHUTTLE.dragH * dt);
     this.velX *= dh; this.velZ *= dh;
     this.velY *= Math.exp(-SHUTTLE.dragV * dt);

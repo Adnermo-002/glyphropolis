@@ -69,7 +69,7 @@ The held state before an Eject: a vertical bar on the left edge of the screen fi
 _Avoid_: loading, cooldown, meter
 
 **Shuttle (穿梭机)**:
-The movement mode after an Eject: inertial gliding with soft gravity, Space thrusting along the look direction, Shift braking. It replaces the Walk until the next Touchdown. Not a vehicle, not a fly camera — a body in glide.
+The movement mode after an Eject: weightless gliding — no gravity, drag alone settles the drift. Space thrusts along the look direction, Shift brakes. It replaces the Walk until the next Touchdown. Not a vehicle, not a fly camera — a body in glide.
 _Avoid_: fly mode, jetpack, noclip
 
 **Brake (减速)**:

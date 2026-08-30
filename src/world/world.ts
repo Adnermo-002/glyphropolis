@@ -223,7 +223,9 @@ export class World {
   }
 
   // --- collision: circle (px,pz,r) vs building boxes whose base is near ground
-  collide(px: number, pz: number, r: number): [number, number] {
+  // feetY = altitude of the player's feet: boxes whose top is at/below it are
+  // the surface the player STANDS ON, never an obstacle (rooftop walking)
+  collide(px: number, pz: number, r: number, feetY = 0): [number, number] {
     const P = CITY.blockPitch;
     const pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
     let x = px, z = pz;
@@ -232,7 +234,8 @@ export class World {
         const c = this.live.get(key(pcx + dx, pcz + dz));
         if (!c) continue;
         for (const b of c.data.boxes) {
-          if (b.y0 > 2.0) continue; // upper tiers: walk under? no - skip only elevated tiers
+          if (b.y0 > 2.0) continue; // elevated tiers fly over / land on
+          if (b.y0 + b.sy <= feetY + 0.1) continue; // walkable surface underfoot
           const nx = Math.max(b.x - b.sx / 2, Math.min(x, b.x + b.sx / 2));
           const nz = Math.max(b.z - b.sz / 2, Math.min(z, b.z + b.sz / 2));
           const ddx = x - nx, ddz = z - nz;
@@ -329,6 +332,25 @@ export class World {
         const top = b.y0 + b.sy;
         if (top > belowY) continue;
         if (Math.abs(px - b.x) < b.sx / 2 + 0.2 && Math.abs(pz - b.z) < b.sz / 2 + 0.2 && top > best) best = top;
+      }
+    }
+    return best;
+  }
+
+  // debug helper: the tallest usable rooftop near (px, pz), for ?at=roof
+  findRoofNear(px: number, pz: number, maxTop: number): { x: number; z: number; top: number } | null {
+    const P = CITY.blockPitch;
+    const pcx = Math.floor(px / P), pcz = Math.floor(pz / P);
+    let best: { x: number; z: number; top: number } | null = null;
+    let bestD = 1e9;
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+      const c = this.live.get(key(pcx + dx, pcz + dz));
+      if (!c) continue;
+      for (const b of c.data.boxes) {
+        const top = b.y0 + b.sy;
+        if (top > maxTop || b.sx < 4) continue;
+        const d = Math.hypot(b.x - px, b.z - pz);
+        if (d < bestD) { bestD = d; best = { x: b.x, z: b.z, top }; }
       }
     }
     return best;

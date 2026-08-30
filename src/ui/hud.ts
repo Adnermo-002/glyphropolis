@@ -66,7 +66,9 @@ export class Hud {
     this.chargeEl.style.display = p.charging ? "" : "none";
     if (p.charging) {
       this.fillEl.style.height = (p.charge * 100).toFixed(1) + "%";
-      this.txtEl.textContent = Math.round(SHUTTLE.hMin + (SHUTTLE.hMax - SHUTTLE.hMin) * p.charge) + "m";
+      // weightless glide: rise distance ~= impulse / drag
+      const vy = SHUTTLE.ejectV0 + SHUTTLE.ejectV1 * p.charge;
+      this.txtEl.textContent = Math.round(vy / SHUTTLE.dragV) + "m";
     }
     this.vigEl.style.opacity = (p.charge * 0.8).toFixed(2);
     if (this.dbgOn) this.dbg.textContent =
