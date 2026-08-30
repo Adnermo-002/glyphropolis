@@ -144,6 +144,7 @@ async function main() {
     U.uSkyTop.value.copy(dn.top);
     U.uSkyHorizon.value.copy(dn.horizon);
     U.uStars.value = dn.stars;
+    tm.u.uStars.value = dn.stars;
     U.uExposure.value = 1.72 - dn.amb * 0.7;
 
     weather.update(dt, dn, camera.position);

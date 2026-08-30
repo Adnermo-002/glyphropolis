@@ -28,6 +28,10 @@ export class Textmode {
     uRampLen: { value: TEXTMODE.ramp.length },
     uEdgeV: { value: GLYPHS.indexOf("|") },
     uEdgeH: { value: GLYPHS.indexOf("-") },
+    uGlyphStar: { value: GLYPHS.indexOf("*") },
+    uGlyphMoon1: { value: TEXTMODE.ramp.indexOf("o") },
+    uGlyphMoon2: { value: TEXTMODE.ramp.indexOf("x") },
+    uStars: { value: 0 },
     uGlyphCount: { value: GLYPHS.length },
     uTime: { value: 0 },
     uRevealOn: { value: 0 },
@@ -117,6 +121,7 @@ const FRAG = `
   uniform float uRampLen; uniform float uEdgeV; uniform float uEdgeH; uniform float uGlyphCount;
   uniform float uTime; uniform float uRevealOn; uniform float uRevealR;
   uniform vec2 uRevealC; uniform float uBand; uniform float uCrt; uniform float uExposure;
+  uniform float uStars; uniform float uGlyphStar; uniform float uGlyphMoon1; uniform float uGlyphMoon2;
 
   float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
 
@@ -141,10 +146,26 @@ const FRAG = `
 
     // glyph selection
     float gi;
+    vec3 starTint = vec3(0.0);
+    float starHit = 0.0, moonHit = 0.0;
     bool sky = a < 0.5;
     if (sky) {
-      // sparse sky: bright areas stay blank, faint gradients get light glyphs
-      gi = L > 0.55 ? 0.0 : L > 0.28 ? 3.0 : L > 0.12 ? 1.0 : 0.0;
+      // night sky art: a cell with one bright corner tap is a STAR — pick a
+      // bright glyph tinted by that corner; bright MEAN cells are the moon or
+      // dense milky way -> dense glyphs (day keeps the blank-sky rule)
+      float Lmax4 = max(lA, max(lB, max(lC, lD)));
+      if (uStars > 0.3 && Lmax4 > 0.28 && L < 0.42) {
+        float sv = clamp((Lmax4 - 0.24) * 2.6, 0.0, 1.0);
+        gi = sv > 0.62 ? uGlyphStar : sv > 0.3 ? 7.0 : 2.0; // * + '
+        starTint = clamp((Lmax4 == lA ? sA.rgb : Lmax4 == lB ? sB.rgb : Lmax4 == lC ? sC.rgb : sD.rgb) * 1.6 + vec3(0.3, 0.35, 0.45), 0.0, 1.0);
+        starHit = 1.0;
+      } else if (uStars > 0.3 && L > 0.42) {
+        gi = L > 0.8 ? uGlyphMoon2 : uGlyphMoon1; // o / x
+        moonHit = 1.0;
+      } else {
+        // sparse sky: bright areas stay blank, faint gradients get light glyphs
+        gi = L > 0.55 ? 0.0 : L > 0.28 ? 3.0 : L > 0.12 ? 1.0 : 0.0;
+      }
     } else {
       float gx = (lB + lD) - (lA + lC);
       float gy = (lC + lD) - (lA + lB);
@@ -158,7 +179,9 @@ const FRAG = `
     vec3 hue = c / max(cmax, 0.12);
     vec3 fg = clamp(c * (0.7 + 1.5 * L) + hue * 0.22, 0.0, 1.0);
     vec3 bg = c * c * (sky ? 0.35 : 0.3);
-    if (sky) { fg *= 0.9; }
+    if (sky && starHit < 0.5 && moonHit < 0.5) { fg *= 0.9; }
+    if (starHit > 0.5) { fg = starTint; bg = vec3(0.0); }
+    if (moonHit > 0.5) { fg = clamp(c * 1.5 + vec3(0.2, 0.22, 0.26), 0.0, 1.0); bg = c * c * 0.4; }
 
     // cornice: a depth jump to the cell above marks a rooftop / setback edge
     // (asciicker layer-step trick) where the luminance Sobel saw nothing
