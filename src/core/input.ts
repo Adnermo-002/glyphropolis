@@ -9,6 +9,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     addEventListener("keydown", (e) => {
+      if (e.code === "Space") e.preventDefault(); // never scroll / re-click
       if (e.repeat) return;
       this.keys.add(e.code);
       this.onKey?.(e.code);
@@ -35,10 +36,11 @@ export class Input {
   }
 
   lookSens = 0.0023;
+  pitchLimit = 1.45; // walk keeps ~83 deg; the Shuttle opens to +/-90
   applyLook() {
     const [dx, dy] = this.mouseDelta();
     this.yaw -= dx * this.lookSens;
-    this.pitch = clamp(this.pitch - dy * this.lookSens, -1.45, 1.45);
+    this.pitch = clamp(this.pitch - dy * this.lookSens, -this.pitchLimit, this.pitchLimit);
     if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
     if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
   }
@@ -52,9 +54,10 @@ export class Input {
     return [f, s];
   }
 
+  // Walk sprint (Shift also brakes the Shuttle, ADR 0002 amended)
   get running(): boolean { return this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"); }
+  get brakeHeld(): boolean { return this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"); }
 
-  // Shuttle: holding E on a solid surface charges an Eject; in the air it
-  // deliberately does nothing (ADR 0002).
-  get ejectHeld(): boolean { return this.keys.has("KeyE"); }
+  // Space: on a solid surface it charges an Eject; while shuttling it thrusts
+  get ejectHeld(): boolean { return this.keys.has("Space"); }
 }

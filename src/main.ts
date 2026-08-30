@@ -49,6 +49,7 @@ async function main() {
   const input = new Input(gl);
   const bloom = new Bloom();
   const hud = new Hud(hudEl);
+  hud.dbgOn = params.has("phys");
 
   // Spawn on the west sidewalk of a north-south road, facing ALONG it
   // (whichever end holds downtown). ?at=park starts inside the nearest park.
@@ -75,9 +76,12 @@ async function main() {
   const player = new Player(yaw, 0);
   player.x = sx; player.z = sz;
   input.yaw = yaw;
-  // debug: ?shuttle=<alt> spawns already gliding (rail + HUD verification)
+  // debug: ?shuttle=<alt> spawns already gliding (rail + HUD verification);
+  // ?gravity=<n> overrides the fall rate so headless runs can land in-frame
   const shuttleAlt = parseFloat(params.get("shuttle") || "");
   if (!Number.isNaN(shuttleAlt)) { player.mode = "shuttle"; player.y = PLAYER.eye + Math.max(3, shuttleAlt); }
+  const gParam = parseFloat(params.get("gravity") || "");
+  if (!Number.isNaN(gParam)) SHUTTLE.gravity = gParam;
 
   let crtTarget = crtStart ? 1 : 0;
   tm.u.uCrt.value = crtTarget;

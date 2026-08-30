@@ -21,6 +21,8 @@ export class Hud {
   private fillEl: HTMLDivElement;
   private txtEl: HTMLDivElement;
   private vigEl: HTMLDivElement;
+  private dbg: HTMLDivElement;
+  dbgOn = false;
   private acc = 0;
   private helpVisible = true;
   private helpTimer = 14;
@@ -32,7 +34,8 @@ export class Hud {
       <canvas id="rail" width="64" height="380"></canvas>
       <div id="charge"><div id="chargeTxt"></div><div id="chargeFill"></div></div>
       <div id="vig"></div>
-      <div class="hud-bl">WASD move · Shift run/thrust · hold E to charge eject · Mouse look · C crt · R new city · H help · Esc release</div>
+      <div class="hud-dbg"></div>
+      <div class="hud-bl">WASD move · Space charge eject / thrust · Shift run / brake · Mouse look · C crt · R new city · H help · Esc release</div>
     `;
     this.status = el.querySelector(".hud-tl")!;
     this.help = el.querySelector(".hud-bl")!;
@@ -44,6 +47,7 @@ export class Hud {
     this.fillEl = el.querySelector("#chargeFill")!;
     this.txtEl = el.querySelector("#chargeTxt")!;
     this.vigEl = el.querySelector("#vig")!;
+    this.dbg = el.querySelector(".hud-dbg")!;
     this.rail.style.display = "none";
     this.chargeEl.style.display = "none";
   }
@@ -65,6 +69,8 @@ export class Hud {
       this.txtEl.textContent = Math.round(SHUTTLE.hMin + (SHUTTLE.hMax - SHUTTLE.hMin) * p.charge) + "m";
     }
     this.vigEl.style.opacity = (p.charge * 0.8).toFixed(2);
+    if (this.dbgOn) this.dbg.textContent =
+      `y=${p.y.toFixed(2)} vy=${p.velY.toFixed(2)} vx=${p.velX.toFixed(2)} mode=${p.mode} hour=${info.hour.toFixed(3)}`;
 
     // --- throttled: status text + minimap
     this.acc += dt;

@@ -23,6 +23,10 @@ canvas#boot {
   background: rgba(0, 10, 4, 0.55);
   image-rendering: pixelated;
 }
+.hud-dbg {
+  position: absolute; top: 92px; left: 16px;
+  font-size: 11px; opacity: 0.9; white-space: pre;
+}
 .hud-bl {
   position: absolute; bottom: 14px; left: 16px;
   font-size: 12px; opacity: 0.75; white-space: pre;

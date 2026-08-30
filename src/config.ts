@@ -19,19 +19,22 @@ export const PLAYER = {
   bobAmp: 0.045,
 };
 
-// Shuttle movement (ADR 0002): soft-gravity glide after an Eject.
+// Shuttle movement (ADR 0002, amended): soft-gravity glide after an Eject.
 export const SHUTTLE = {
   gravity: 4.0,      // m/s^2 soft gravity
   liftK: 0.085,      // lift per horizontal m/s (caps at 85% of gravity)
-  thrust: 26,        // SHIFT thrust along the look direction (m/s^2)
-  accelF: 13,        // W/S pitch-plane accel
-  dragH: 0.55, dragV: 0.22,
+  thrust: 26,        // Space thrust along the look direction (m/s^2)
+  accelF: 15,        // W/S pitch-plane accel
+  grip: 3.5,         // lateral damping: velocity follows the nose
+  brake: 30,         // Shift active brake (m/s^2 against velocity)
+  dragH: 0.5, dragV: 0.22,
   capH: 40, capHBoost: 65, capV: 55, // speed caps (m/s)
   ceiling: 300, ceilingFade: 45,     // soft ceiling + fade band (m)
   chargeTime: 1.15,  // seconds to a full charge
   hMin: 9, hMax: 66, // eject apex range (m)
-  heavyLandV: 15,    // touchdown grading threshold (m/s)
-  bounceKeep: 0.35,  // rebound kept on a heavy landing
+  heavyLandV: 15,    // hard contact: stronger shake (landing always cancels)
+  bankMax: 0.12,     // camera roll into turns (rad, ~7 deg)
+  camLag: 9,         // camera yaw spring rate (rad/s follow)
 };
 
 export const TIME = {

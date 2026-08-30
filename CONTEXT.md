@@ -61,19 +61,27 @@ The opening reveal in which the Textmode sweeps outward from the center Cell of 
 _Avoid_: intro animation, reveal effect, transition
 
 **Eject (弹射)**:
-The act of charging (holding E) and releasing an upward launch from any solid surface the player stands on. Charge time decides launch strength.
+The act of charging (holding Space on a solid surface) and releasing an upward launch. Charge time decides launch strength.
 _Avoid_: jump, teleport, warp
 
 **Charge (蓄力)**:
-The held state before an Eject: a vertical bar on the left edge of the screen fills while the screen corners darken, previewing the launch height. Releasing E fires the launch.
+The held state before an Eject: a vertical bar on the left edge of the screen fills while the screen corners darken, previewing the launch height. Releasing Space fires the launch.
 _Avoid_: loading, cooldown, meter
 
 **Shuttle (穿梭机)**:
-The movement mode after an Eject: inertial gliding with soft gravity, SHIFT thrusting along the look direction. It replaces the Walk until the next Touchdown. Not a vehicle, not a fly camera — a body in glide.
+The movement mode after an Eject: inertial gliding with soft gravity, Space thrusting along the look direction, Shift braking. It replaces the Walk until the next Touchdown. Not a vehicle, not a fly camera — a body in glide.
 _Avoid_: fly mode, jetpack, noclip
 
+**Brake (减速)**:
+Shift during the Shuttle: an active force against the velocity that never reverses it. On foot, Shift remains the sprint.
+_Avoid_: stop, handbrake, damp
+
+**Bank (侧倾)**:
+The Shuttle camera rolling a few degrees into a turn while its yaw lags the look input slightly; the Walk camera stays rigid.
+_Avoid_: camera shake, tilt effect
+
 **Touchdown (落地)**:
-The moment the Shuttle meets any solid surface and the mode ends. Soft if the descent is gentle; heavy landings bounce once with a screen shake before settling.
+The moment the Shuttle meets any solid surface — street or rooftop — and the mode ends immediately, with no rebound. Hard contacts only shake the screen harder.
 _Avoid_: landing animation, crash, respawn
 
 **Altitude Rail (海拔线)**:

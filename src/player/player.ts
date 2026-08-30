@@ -5,11 +5,16 @@ import type { World } from "../world/world";
 
 export type PlayerMode = "walk" | "shuttle";
 
-// First-person body with two movement modes (ADR 0002):
-// - Walk: street-level WASD, sticks to whatever solid surface is underfoot.
-// - Shuttle: after an Eject (hold E to charge, release) the body glides with
-//   soft gravity and speed-lift; SHIFT thrusts along the look direction.
-//   Touchdown on any solid surface (street or rooftop) returns to the Walk.
+// First-person body with two movement modes (ADR 0002, amended):
+// - Walk: WASD + Shift sprint, sticks to whatever solid surface is underfoot.
+//   Space charges an Eject.
+// - Shuttle: after the Eject the body glides with soft gravity and
+//   speed-lift. Space thrusts along the full look direction, Shift brakes
+//   against the velocity, and lateral grip keeps the velocity on the nose so
+//   corners stop feeling barge-like. The camera banks into turns and lags
+//   the look yaw slightly; pitch opens to +/-90 deg.
+// Touchdown on ANY solid surface (street or rooftop) returns to the Walk —
+// always, with no rebound; hard contacts only shake harder.
 export class Player {
   x = 0; z = 6;
   y = PLAYER.eye;               // eye pivot altitude; feet = y - eye
@@ -17,19 +22,25 @@ export class Player {
   mode: PlayerMode = "walk";
   charge = 0;                   // 0..1 while charging an Eject
   charging = false;
-  bounced = false;              // heavy landing already rebounded once
   shake = 0;                    // decaying screen-shake amplitude
   bobPhase = 0;
   bob = 0;
+  camYaw = 0;                   // spring-lagged camera yaw (shuttle only)
+  bank = 0;                     // camera roll into turns (shuttle only)
+  private lastYaw = 0;
   private tmp = new THREE.Vector3();
 
-  constructor(public yaw = 0, public pitch = -0.03) {}
+  constructor(public yaw = 0, public pitch = -0.03) {
+    this.camYaw = yaw;
+    this.lastYaw = yaw;
+  }
 
   get altitude(): number { return this.y - PLAYER.eye; } // street = 0
   get hSpeed(): number { return Math.hypot(this.velX, this.velZ); }
 
   update(dt: number, input: Input, camera: THREE.PerspectiveCamera, world: World, obstacles?: number[]) {
     input.applyLook();
+    input.pitchLimit = this.mode === "shuttle" ? Math.PI / 2 - 0.02 : 1.45;
     if (this.mode === "walk") this.updateWalk(dt, input, world, obstacles);
     else this.updateShuttle(dt, input, world);
 
@@ -39,13 +50,19 @@ export class Player {
       this.y + this.bob + (Math.random() - 0.5) * sh,
       this.z + (Math.random() - 0.5) * sh);
     camera.rotation.order = "YXZ";
-    camera.rotation.y = input.yaw;
+    camera.rotation.y = this.camYaw;
     camera.rotation.x = input.pitch;
+    camera.rotation.z = this.bank;
     this.shake = Math.max(0, this.shake - dt * 2.4);
     this.tmp.set(0, 0, 0);
   }
 
   private updateWalk(dt: number, input: Input, world: World, obstacles?: number[]) {
+    // walk keeps the rigid camera: yaw hard-locked to the look input
+    this.camYaw = input.yaw;
+    this.lastYaw = input.yaw;
+    this.bank += (0 - this.bank) * Math.min(1, dt * 10);
+
     const [f, s] = input.moveAxis();
     const speed = input.running ? PLAYER.run : PLAYER.walk;
     const sin = Math.sin(input.yaw), cos = Math.cos(input.yaw);
@@ -81,13 +98,12 @@ export class Player {
     if (this.y - target > 2.2) {
       this.mode = "shuttle";
       this.velY = 0;
-      this.bounced = false;
     } else {
       this.y += (target - this.y) * Math.min(1, dt * 14);
       this.velY = 0;
     }
 
-    // Charge on the ground (hold E), Eject on release
+    // Charge on a surface (hold Space), Eject on release
     if (input.ejectHeld) {
       this.charge = Math.min(1, this.charge + dt / SHUTTLE.chargeTime);
       this.charging = true;
@@ -95,7 +111,7 @@ export class Player {
       const h = SHUTTLE.hMin + (SHUTTLE.hMax - SHUTTLE.hMin) * this.charge;
       this.mode = "shuttle";
       this.velY = Math.sqrt(2 * SHUTTLE.gravity * h);
-      this.charge = 0; this.charging = false; this.bounced = false;
+      this.charge = 0; this.charging = false;
     }
 
     const spd = Math.hypot(this.velX, this.velZ);
@@ -113,8 +129,8 @@ export class Player {
       this.velZ += (wz / wl) * SHUTTLE.accelF * dt;
     }
 
-    // SHIFT: thrust along the look direction, pitch included
-    if (input.running) {
+    // Space: thrust along the full look direction, pitch included
+    if (input.ejectHeld) {
       const cp = Math.cos(input.pitch), sp = Math.sin(input.pitch);
       const fade = Math.min(1, Math.max(0.1,
         (SHUTTLE.ceiling + SHUTTLE.ceilingFade - this.y) / SHUTTLE.ceilingFade));
@@ -122,6 +138,23 @@ export class Player {
       this.velZ += -cos * cp * SHUTTLE.thrust * fade * dt;
       this.velY += sp * SHUTTLE.thrust * fade * dt;
     }
+
+    // Shift: active brake against the velocity, never through zero
+    if (input.brakeHeld) {
+      const sp = Math.hypot(this.velX, this.velY, this.velZ);
+      if (sp > 1e-4) {
+        const kB = Math.max(0, sp - SHUTTLE.brake * dt) / sp;
+        this.velX *= kB; this.velY *= kB; this.velZ *= kB;
+      }
+    }
+
+    // lateral grip: velocity follows the nose, forward momentum survives
+    const fwdX = -sin, fwdZ = -cos, rX = cos, rZ = -sin;
+    const vF = this.velX * fwdX + this.velZ * fwdZ;
+    const vS = this.velX * rX + this.velZ * rZ;
+    const nS = vS * Math.exp(-SHUTTLE.grip * dt);
+    this.velX = fwdX * vF + rX * nS;
+    this.velZ = fwdZ * vF + rZ * nS;
 
     // soft gravity countered by speed-lift: fast flight holds altitude
     const lift = Math.min(this.hSpeed * SHUTTLE.liftK, SHUTTLE.gravity * 0.85);
@@ -131,12 +164,11 @@ export class Player {
     this.velX *= dh; this.velZ *= dh;
     this.velY *= Math.exp(-SHUTTLE.dragV * dt);
 
-    const capH = input.running ? SHUTTLE.capHBoost : SHUTTLE.capH;
+    const capH = input.ejectHeld ? SHUTTLE.capHBoost : SHUTTLE.capH;
     const hs = this.hSpeed;
     if (hs > capH) { const k2 = capH / hs; this.velX *= k2; this.velZ *= k2; }
     this.velY = Math.max(-SHUTTLE.capV, Math.min(SHUTTLE.capV, this.velY));
 
-    const impactV = -this.velY; // positive while descending
     const prevFeet = this.y - PLAYER.eye;
     let nx = this.x + this.velX * dt;
     let ny = this.y + this.velY * dt;
@@ -144,16 +176,22 @@ export class Player {
     const r = world.collide3D(nx, ny, nz, prevFeet, this.velY, PLAYER.radius, PLAYER.eye);
     nx = r[0]; ny = r[1]; nz = r[2];
     if (r[4] === 1 && this.velY > 0) this.velY = 0; // rose into an underside
-    if (r[3] === 2) {
-      if (!this.bounced) {
-        // heavy landing: rebound once with a shake, settle on next contact
-        this.bounced = true;
-        this.velY = impactV * SHUTTLE.bounceKeep;
-        this.shake = 0.55;
-      } else this.touchdown(ny);
-    } else if (r[3] === 1) {
+    if (r[3] !== 0) {
+      // touchdown ALWAYS cancels the Shuttle; hard contacts just shake harder
+      if (r[3] === 2) this.shake = 0.85;
       this.touchdown(ny);
     } else { this.x = nx; this.y = ny; this.z = nz; }
+
+    // camera: yaw spring-lags the look input, banks into the turn
+    let dYaw = input.yaw - this.camYaw;
+    dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+    this.camYaw += dYaw * Math.min(1, dt * SHUTTLE.camLag);
+    const yawRate = (input.yaw - this.lastYaw) / Math.max(dt, 1e-4);
+    this.lastYaw = input.yaw;
+    // roll fades out near straight up/down so the +/-90 pitch stays stable
+    const tgt = Math.max(-SHUTTLE.bankMax, Math.min(SHUTTLE.bankMax, yawRate * 0.35))
+      * Math.cos(input.pitch);
+    this.bank += (tgt - this.bank) * Math.min(1, dt * 5);
     this.bob = 0;
   }
 
@@ -161,8 +199,8 @@ export class Player {
     this.mode = "walk";
     this.y = y;
     this.velY = 0;
-    this.bounced = false;
     this.charge = 0; this.charging = false;
     this.shake = Math.max(this.shake, 0.16);
+    this.bank = 0; // walk re-locks camYaw to the look input next frame
   }
 }
