@@ -102,7 +102,7 @@ export class Hud {
     // player arrow
     ctx.save();
     ctx.translate(half, half);
-    ctx.rotate(-info.player.yaw);
+    ctx.rotate(-info.player.camYaw); // Player has no `yaw` field (was NaN -> frozen arrow)
     ctx.fillStyle = "#eafff0";
     ctx.beginPath();
     ctx.moveTo(0, -5); ctx.lineTo(3.4, 4); ctx.lineTo(0, 2.2); ctx.lineTo(-3.4, 4);
