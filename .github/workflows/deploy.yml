@@ -19,12 +19,26 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache-dependency-path: |
+            package-lock.json
+            g2/package-lock.json
+      # V2 (third-person) is the main site
+      - name: Build v2
+        working-directory: g2
+        run: |
+          npm ci
+          npm run build
+      # V1 (original first-person) stays playable under /v1/
+      - name: Build v1
+        run: |
+          npm ci
+          npm run build
+          mkdir -p g2/dist/v1
+          cp -r dist/* g2/dist/v1/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: g2/dist
   deploy:
     needs: build
     runs-on: ubuntu-latest

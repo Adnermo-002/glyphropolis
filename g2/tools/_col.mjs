@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 320, height: 180 } });
+await page.goto('http://localhost:5199/#test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__city.start());
+await page.waitForTimeout(3000);
+const c = await page.evaluate(() => window.__city.colliders(300).filter(c => c[0] >= 72 && c[3] <= 144 && c[2] >= 0 && c[5] <= 72 && c[4] > 10));
+console.log(JSON.stringify(c));
+await browser.close();

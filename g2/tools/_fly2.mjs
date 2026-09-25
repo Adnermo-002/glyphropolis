@@ -1,0 +1,18 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+await page.goto('http://localhost:5199/#test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__city.start());
+await page.evaluate(() => { const c = window.__city; c.time(0.45); c.weather(0); c.free(); c.teleport(108, 40, 130); c.look(2.6, -0.1); });
+await page.waitForTimeout(300);
+await page.keyboard.press('Space'); await page.waitForTimeout(300);
+await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft'); await page.waitForTimeout(3500);
+await page.evaluate(() => window.__city.debug(1));
+await page.waitForTimeout(600);
+await page.screenshot({ path: 'shots/fly_raw.png' });
+await page.evaluate(() => window.__city.debug(0));
+await page.waitForTimeout(600);
+await page.screenshot({ path: 'shots/fly_ascii.png' });
+console.log(JSON.stringify(await page.evaluate(() => window.__city.info())));
+await browser.close();

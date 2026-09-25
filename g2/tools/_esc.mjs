@@ -1,0 +1,24 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
+const errs = []; page.on('pageerror', (e) => errs.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+await page.goto('http://localhost:5199/#test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__city.start());
+await page.waitForTimeout(1000);
+const menu = () => page.evaluate(() => !document.getElementById('menu').classList.contains('hidden'));
+await page.keyboard.press('Escape'); await page.waitForTimeout(300); console.log('after esc1 menu open:', await menu());
+const f0 = (await page.evaluate(() => window.__city.info())).frames;
+await page.keyboard.press('Escape'); await page.waitForTimeout(300); console.log('after esc2 menu open:', await menu());
+await page.keyboard.press('Escape'); await page.waitForTimeout(300); console.log('after esc3 menu open:', await menu());
+await page.keyboard.press('KeyR'); await page.waitForTimeout(300); console.log('after R menu open:', await menu());
+// snappy movement: speed after 0.25s of W, and stop after release
+await page.evaluate(() => { const c = window.__city; c.free(); c.teleport(108, 0, 130); c.look(2.6, 0); });
+await page.waitForTimeout(500);
+const a = (await page.evaluate(() => window.__city.info())).pos;
+await page.keyboard.down('KeyW'); await page.waitForTimeout(1200); await page.keyboard.up('KeyW');
+await page.waitForTimeout(400);
+const b = (await page.evaluate(() => window.__city.info())).pos;
+console.log('moved', a, '->', b, 'dir', ((b[0]-a[0])/Math.hypot(b[0]-a[0],b[2]-a[2])).toFixed(2), ((b[2]-a[2])/Math.hypot(b[0]-a[0],b[2]-a[2])).toFixed(2), 'expected -0.52 0.86');
+console.log('errors', errs);
+await browser.close();

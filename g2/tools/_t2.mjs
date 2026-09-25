@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+await page.goto('http://localhost:5199/#test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__city.start());
+await page.evaluate(() => { const c = window.__city; c.time(0.72); c.weather(0); c.free(); c.teleport(292, 0, -40); });
+await page.waitForTimeout(3000);
+const cs = await page.evaluate(() => window.__city.colliders(300));
+console.log(cs.length, JSON.stringify(cs.filter(c => c[4] > 12 && c[4] < 16 && c[3]-c[0] < 8)));
+await browser.close();

@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+await page.goto('http://localhost:5199/#test', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.evaluate(() => window.__city.start());
+await page.waitForTimeout(2000);
+await page.evaluate(() => { const c = window.__city; c.look(Math.PI / 2, 0); }); await page.waitForTimeout(500); await page.keyboard.press('Tab'); await page.waitForTimeout(1500); console.log(JSON.stringify(await page.evaluate(() => window.__city.info())));
+console.log(await page.evaluate(() => { const m = document.getElementById('map'); const r = m.getBoundingClientRect(); const cs = getComputedStyle(m); return [m.className, cs.display, cs.zIndex, r.x, r.y, r.width, r.height, document.activeElement?.tagName]; }));
+await page.screenshot({ path: 'shots/map.png' });
+await browser.close();

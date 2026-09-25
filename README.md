@@ -1,14 +1,22 @@
 # GLYPHROPOLIS
 
-**An infinite, first-person ASCII city.** Boot, bloom, walk.
+**An infinite ASCII city.** Run, grapple, glide and fly through a procedural metropolis drawn entirely in text glyphs.
 
 A seeded procedural metropolis rendered entirely as text glyphs: true 3D geometry converted to characters in a single GLSL fullscreen pass. Rainy neon nights, day/night cycles, endless streamed streets - a pure static site.
 
-▶ **Play**: https://adnermo-002.github.io/glyphropolis/
+▶ **Play v2**: https://glyphropolis.adnermo.online/ (third-person: run, grapple, glide, fly, collect glyphs)
+
+▶ **Classic v1**: https://glyphropolis.adnermo.online/v1/ (original first-person walk)
 
 ![night](docs/screenshots/night.png)
 
-## Run locally
+## v2 controls
+
+WASD move · Shift sprint · Space jump (again in the air: fly) · E grapple · mouse look · Tab map · Esc menu.
+
+v2 lives in `g2/` (`cd g2 && npm install && npm run dev`).
+
+## Run v1 locally
 
 ```bash
 npm install

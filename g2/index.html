@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>字形之城 · GLYPHROPOLIS v2</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="boot-glyph" id="bootGlyph">字</div>
+      <h1>字形之城</h1>
+      <div class="boot-sub">GLYPHROPOLIS · ASCII CITY ENGINE v2</div>
+      <div class="boot-lines" id="bootLines"></div>
+      <div class="boot-load" id="bootLoad"></div>
+      <div class="boot-hint">点击任意处进入城市 · CLICK TO ENTER</div>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div id="statusLine"></div>
+    <div id="shardLine"></div>
+    <canvas id="compass"></canvas>
+    <div id="banner" class="hidden"></div>
+    <div id="hintLine"></div>
+    <div id="toasts"></div>
+    <div id="crosshair"><span></span></div>
+    <canvas id="grappleLine"></canvas>
+  </div>
+
+  <canvas id="map" class="hidden"></canvas>
+  <canvas id="journal" class="hidden"></canvas>
+
+  <div id="menu" class="hidden">
+    <div class="menu-box">
+      <h2>城市暂停</h2>
+      <div class="menu-row" data-act="resume">继续 · Esc</div>
+      <div class="menu-row" data-act="palette">霓虹色板： <span id="mPal">NEON</span></div>
+      <div class="menu-row" data-act="cell">字形大小： <span id="mCell">6×12</span></div>
+      <div class="menu-row" data-act="sound">声音： <span id="mSound">开</span></div>
+      <div class="menu-row" data-act="newcity">生成新城市</div>
+      <div class="menu-seed"><input id="mSeed" type="text" maxlength="24" spellcheck="false" /><span class="menu-row" data-act="goseed">跳转种子</span></div>
+      <div class="menu-foot">空中按空格 飞行 · 空格/C 升降 · Shift 加速 · F 停飞<br>Tab 地图 · J 手记 · P 照片 · M 声音 · Esc 菜单</div>
+    </div>
+  </div>
+
+  <div id="glfail" class="hidden">
+    <p>这台机器无法运行 WebGL2，无法进入字形之城。</p>
+    <p>GLYPHROPOLIS v2 needs WebGL2 with floating-point color buffers.</p>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

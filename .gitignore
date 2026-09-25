@@ -2,3 +2,12 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# local tooling (never publish)
+agent-bridge/
+.pi/
+.agents/
+g2/shots/
+g2/handoff/
+*.zip
+uploads/
