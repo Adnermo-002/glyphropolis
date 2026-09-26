@@ -1,6 +1,6 @@
 // Glyphropolis v2 — main game orchestrator.
 
-import { CELL_SIZES, CFG, DAYNAME, DISTRICT_NAME, PALETTES, WEATHER_NAME, type PaletteId } from './config';
+import { CELL_SIZES, CFG, DAYNAME, DISTRICT_NAME, PALETTES, QUALITY_NAME, WEATHER_NAME, type PaletteId, type QualityTier } from './config';
 import { AudioEngine } from './core/audio';
 import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData } from './core/save';
@@ -58,6 +58,17 @@ class Game {
   private journalOpen = false;
   private prevFlash = 0;
   cinematic = false;
+  /** boot: shaders compiled? click-to-enter waits for it instead of freezing the page */
+  private shadersReady = false;
+  private wantStart = false;
+  private spawn: [number, number, number] = [108, 0, 108];
+  /** auto quality: frame-time window */
+  private ftSum = 0;
+  private ftN = 0;
+  private ftSlowWindows = 0;
+  private ftFastWindows = 0;
+  private autoCeiling: QualityTier = 2;
+  private lastStepDown = -1e9;
 
   constructor() {
     this.canvas = document.getElementById('gl') as HTMLCanvasElement;
@@ -91,16 +102,26 @@ class Game {
     this.avatar = new Avatar(this.pipeline.worldMat);
     this.pipeline.addMesh(this.avatar.root);
 
-    // initial chunks around spawn
+    // quality: saved tier, or a guess from the GPU name (refined by frame times while playing)
+    this.pipeline.setQuality(this.save.quality >= 0 ? (this.save.quality as QualityTier) : this.guessQuality());
+
+    // initial chunks: only the blocks around the spawn point now (centre first); the rest of the
+    // 7x7 window streams in during the boot screen so the page never locks up
     const cx = 108, cz = 108;
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        this.world.update(cx + dx * 30, cz + dz * 30, 100);
-      }
-    }
     this.world.update(cx, cz, 40);
-    const [sx, sy, sz] = this.world.findSpawn();
+    this.spawn = this.world.findSpawn();
+    const [sx, sy, sz] = this.spawn;
     this.player = new Player(sx, sy, sz, this.world, this.traffic);
+    // compile every shader in the background while the boot screen is up
+    void this.pipeline.precompile().then(() => {
+      this.shadersReady = true;
+      this.bootStatus();
+      if (this.wantStart && this.state === 'boot') {
+        this.startPlay();
+        this.input.requestLock(this.canvas);
+        window.setTimeout(() => { if (!this.input.locked && this.state === 'play') this.hud.setHint('点击画面开始控制视角', 4000); }, 400);
+      }
+    });
     this.totalShards = this.world.shards.length > 0 ? Math.max(this.world.shardTotalApprox(), this.world.shards.length) : 0;
 
     this.audio.enabled = this.save.sound;
@@ -130,6 +151,7 @@ class Game {
     boot.addEventListener('pointerdown', () => {
       if (this.state !== 'boot') return;
       this.audio.init();
+      if (!this.shadersReady) { this.wantStart = true; this.bootStatus(); return; }
       this.startPlay();
       this.input.requestLock(this.canvas);
     });
@@ -149,19 +171,20 @@ class Game {
         el.appendChild(d);
       }, 150 + i * 160);
     });
-    const loadEl = document.getElementById('bootLoad')!;
-    loadEl.textContent = `SEED ${this.seedStr.toUpperCase()} · 城市已生成`;
+    this.bootStatus();
 
     // menu
     const menu = document.getElementById('menu')!;
     const mPal = document.getElementById('mPal')!;
     const mCell = document.getElementById('mCell')!;
     const mSound = document.getElementById('mSound')!;
+    const mQual = document.getElementById('mQual');
     const mSeed = document.getElementById('mSeed') as HTMLInputElement;
     const refresh = () => {
       mPal.textContent = this.pipeline.palette;
       mCell.textContent = CELL_SIZES[CELL_SIZES.findIndex((c) => c.w === this.pipeline.cellW)]?.label ?? '';
       mSound.textContent = this.audio.enabled ? '开' : '关';
+      if (mQual) mQual.textContent = this.save.quality < 0 ? `自动（${QUALITY_NAME[this.pipeline.quality]}）` : QUALITY_NAME[this.pipeline.quality];
       mSeed.value = this.seedStr;
     };
     this.menuRefresh = refresh;
@@ -186,6 +209,11 @@ class Game {
         } else if (act === 'sound') {
           this.toggleSound();
           refresh();
+        } else if (act === 'quality') {
+          // 自动 -> 低 -> 中 -> 高 -> 自动
+          const next = this.save.quality >= 2 ? -1 : this.save.quality + 1;
+          this.setQuality(next);
+          refresh();
         } else if (act === 'newcity') {
           const s = randomSeed();
           location.hash = s;
@@ -200,6 +228,84 @@ class Game {
     });
   }
   private menuRefresh: () => void = () => undefined;
+
+  /** boot screen status line: city streaming / shader compile progress */
+  private bootStatus(): void {
+    const el = document.getElementById('bootLoad');
+    if (!el || this.state !== 'boot') return;
+    const [sx, , sz] = this.spawn;
+    const pending = this.world.pending(sx, sz);
+    const total = (2 * CFG.RADIUS + 1) ** 2;
+    const city = pending > 0 ? `城市生成中 ${total - pending}/${total}` : '城市已生成';
+    const sh = this.shadersReady ? '画面就绪' : (this.wantStart ? '正在准备画面，请稍候…' : '画面准备中…');
+    el.textContent = `SEED ${this.seedStr.toUpperCase()} · ${city} · ${sh} · 画质 ${QUALITY_NAME[this.pipeline.quality]}`;
+    if (this.softwareGpu()) {
+      let w = document.getElementById('bootWarn');
+      if (!w) {
+        w = document.createElement('div');
+        w.id = 'bootWarn';
+        w.style.cssText = 'margin-top:10px;font-size:12px;line-height:1.7;color:#ff9f6e;';
+        el.insertAdjacentElement('afterend', w);
+      }
+      w.textContent = '注意：浏览器没有启用显卡加速，正在用 CPU 画图，会非常卡。请在浏览器设置里打开「使用图形加速」（或换 Chrome / Edge），再刷新。';
+    }
+  }
+
+  /** software rendering (no GPU acceleration in the browser)? then nothing will be fast */
+  private softwareGpu(): boolean {
+    return /swiftshader|llvmpipe|software|microsoft basic|mesa offscreen/i.test(this.pipeline.gpuName);
+  }
+
+  /** first guess of the quality tier from the GPU name; frame times refine it later.
+   *  (measured: even a Radeon 610M runs the full tier at 200+ fps - the ASCII scene is small - so
+   *  only software renderers and phone GPUs start lower) */
+  private guessQuality(): QualityTier {
+    const g = this.pipeline.gpuName.toLowerCase();
+    if (!g) return 1;
+    if (this.softwareGpu()) return 0;
+    if (/mali|adreno|powervr|videocore/.test(g)) return 0;
+    if (/intel/.test(g) && !/iris|arc/.test(g)) return 1;
+    return 2;
+  }
+
+  /** -1 = auto (keeps the current tier as the starting point), else a fixed tier */
+  private setQuality(q: number, announce = true): void {
+    this.save.quality = q;
+    writeSave(this.seedStr, this.save);
+    if (q >= 0) this.pipeline.setQuality(q as QualityTier);
+    this.autoCeiling = 2;
+    this.ftSum = 0; this.ftN = 0; this.ftSlowWindows = 0; this.ftFastWindows = 0;
+    if (announce) this.hud.toast(q < 0 ? `画质：自动（当前 ${QUALITY_NAME[this.pipeline.quality]}）` : `画质：${QUALITY_NAME[this.pipeline.quality]}`);
+  }
+
+  /** auto quality: step down when frames get slow, step back up (once) when there is headroom */
+  private autoQuality(dt: number): void {
+    if (this.save.quality >= 0) return;
+    this.ftSum += dt; this.ftN++;
+    if (this.ftSum < 2.5) return;
+    const avg = this.ftSum / this.ftN; // s per frame
+    this.ftSum = 0; this.ftN = 0;
+    const q = this.pipeline.quality;
+    if (avg > 0.028) {
+      this.ftFastWindows = 0;
+      if (++this.ftSlowWindows >= 1 && q > 0) {
+        this.autoCeiling = Math.min(this.autoCeiling, q - 1) as QualityTier;
+        this.lastStepDown = this.simTime;
+        this.pipeline.setQuality((q - 1) as QualityTier);
+        this.hud.toast(`画面较慢，画质自动调为「${QUALITY_NAME[q - 1]}」（Esc 菜单可手动设置）`);
+        this.ftSlowWindows = 0;
+      }
+    } else if (avg < 0.0175) {
+      this.ftSlowWindows = 0;
+      if (++this.ftFastWindows >= 3 && q < this.autoCeiling && this.simTime - this.lastStepDown > 30) {
+        this.pipeline.setQuality((q + 1) as QualityTier);
+        this.ftFastWindows = 0;
+      }
+    } else {
+      this.ftSlowWindows = 0;
+      this.ftFastWindows = 0;
+    }
+  }
 
   private applySaveSettings(): void {
     for (const id of this.save.landmarks) this.discovered.add(id);
@@ -316,7 +422,12 @@ class Game {
       requestAnimationFrame(tick);
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
-      if (this.state === 'boot') return;
+      if (this.state === 'boot') {
+        // stream the rest of the start area while the boot screen is up (small slices per frame)
+        const [sx, , sz] = this.spawn;
+        if (this.world.pending(sx, sz) > 0) { this.world.update(sx, sz, 8); this.bootStatus(); }
+        return;
+      }
       // the Esc menu really pauses the city; keep drawing so palette / glyph-size changes show
       if (this.state === 'menu') { this.pipeline.render(); return; }
       this.tick(dt, t / 1000);
@@ -344,6 +455,7 @@ class Game {
 
   private tickInner(dt: number, now: number): void {
     this.simTime += dt;
+    this.autoQuality(dt);
     this.time = (this.time + dt / CFG.DAY_SECONDS) % 1;
     this.weather.update(dt);
 
@@ -558,6 +670,18 @@ function main(): void {
       game['camera'].smoothedInit(s.pos.x + Math.sin(yaw) * 6, Math.max(0.4, s.pos.y + 1.6 - Math.sin(pitch) * 6), s.pos.z + Math.cos(yaw) * 6);
     },
     palette: (id: string) => { game['pipeline'].setPalette(id as PaletteId); },
+    quality: (q: string | number) => {
+      const map: Record<string, number> = { auto: -1, low: 0, mid: 1, high: 2 };
+      game['setQuality'](typeof q === 'number' ? q : map[q] ?? -1, false);
+    },
+    gpu: () => game['pipeline'].gpuName,
+    prepass: (on: boolean) => { game['pipeline'].prepass = on; },
+    /** debug: activate beacon course i (returns the beacon so a test can aim the camera at its rings) */
+    beacon: (i = 0) => {
+      const b = game['world'].beacons[i];
+      if (b) game['challenge'] = { beaconIdx: i, ringIdx: 0, start: performance.now() / 1000 };
+      return b ?? null;
+    },
     debug: (m: number) => { game['pipeline'].debugView(m > 0, m === 2); },
     stats: async () => {
       const p = game['pipeline'];
@@ -573,6 +697,8 @@ function main(): void {
       const pos = game['player'].state.pos;
       return {
         grid: [p.gridW, p.gridH], dpr: p.dpr, err: p.lastRenderError, frames: p.renderFrameCount,
+        quality: p.quality, autoQ: game['save'].quality < 0, gpu: p.gpuName, shaders: game['shadersReady'], prepass: p.prepass,
+        compileMs: p.compileMs, warmupMs: p.warmupMs,
         pos: [+pos.x.toFixed(1), +pos.y.toFixed(1), +pos.z.toFixed(1)], seed: game['seedStr'],
         pending: game['world'].pending(pos.x, pos.z), chunks: game['world'].chunks.size,
         yaw: +game['player'].state.yaw.toFixed(2), grappling: game['player'].state.grappling, flying: game['player'].state.flying,

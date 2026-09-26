@@ -6,9 +6,11 @@ import type { LiveBeacon, LiveShard } from '../world/world';
 
 export class Collectibles {
   shards: THREE.InstancedMesh;
-  rings: THREE.Mesh[] = [];
-  private ringGeo: THREE.TorusGeometry;
-  private ringMat: THREE.MeshBasicMaterial;
+  /** beacon course rings: 5 instances of a torus drawn by the world shader (self-lit MAT.LIGHT).
+   *  (a plain MeshBasicMaterial cannot draw into the two-target scene buffer: WebGL2 rejects the
+   *  draw when a shader lacks an output for an active draw buffer, so the rings were invisible) */
+  rings: THREE.InstancedMesh;
+  private ringSpin: number[] = [0, 0, 0, 0, 0];
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private v = new THREE.Vector3();
@@ -30,14 +32,17 @@ export class Collectibles {
     this.shards.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.shards);
 
-    this.ringGeo = new THREE.TorusGeometry(2.8, 0.2, 8, 28);
-    this.ringMat = new THREE.MeshBasicMaterial({ color: 0x35e0b8, transparent: true, opacity: 0.9 });
-    for (let i = 0; i < 5; i++) {
-      const mesh = new THREE.Mesh(this.ringGeo, this.ringMat.clone());
-      mesh.visible = false;
-      scene.add(mesh);
-      this.rings.push(mesh);
-    }
+    const rg = new THREE.TorusGeometry(2.8, 0.22, 8, 28);
+    const rn = rg.attributes.position.count;
+    rg.setAttribute('aMat', new THREE.BufferAttribute(new Float32Array(rn).fill(MAT.LIGHT), 1));
+    rg.setAttribute('aParams', new THREE.BufferAttribute(new Float32Array(rn * 4), 4));
+    rg.setAttribute('aFacade', new THREE.InstancedBufferAttribute(new Float32Array(5 * 4), 4));
+    rg.setAttribute('aColor', new THREE.InstancedBufferAttribute(new Float32Array(5 * 4).fill(1), 4));
+    this.rings = new THREE.InstancedMesh(rg, worldMat, 5);
+    this.rings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.rings.frustumCulled = false;
+    this.rings.visible = false;
+    scene.add(this.rings);
   }
 
   update(dt: number, time: number, live: LiveShard[], collected: Set<string>, activeBeacon: LiveBeacon | null, ringIndex: number): void {
@@ -64,21 +69,26 @@ export class Collectibles {
     for (let i = 0; i < n; i++) fac.setW(i, 100 + live[i].glyph);
     fac.needsUpdate = true;
 
-    // rings
-    for (let i = 0; i < this.rings.length; i++) {
-      const rm = this.rings[i];
-      if (activeBeacon && i < activeBeacon.rings.length) {
-        const rp = activeBeacon.rings[i];
-        rm.visible = true;
-        rm.position.set(rp.x, rp.y, rp.z);
-        rm.rotation.y += dt * (i === ringIndex ? 1.6 : 0.4);
-        const mat = rm.material as THREE.MeshBasicMaterial;
-        if (i < ringIndex) { mat.color.setHex(0x22332f); mat.opacity = 0.35; }
-        else if (i === ringIndex) { mat.color.setHex(0xffd166); mat.opacity = 0.95; }
-        else { mat.color.setHex(0x35e0b8); mat.opacity = 0.55; }
-      } else {
-        rm.visible = false;
+    // rings: passed = dim grey-green, current = gold, upcoming = teal
+    this.rings.visible = !!activeBeacon;
+    if (activeBeacon) {
+      const rc = this.rings.geometry.getAttribute('aColor') as THREE.InstancedBufferAttribute;
+      for (let i = 0; i < 5; i++) {
+        if (i < activeBeacon.rings.length) {
+          const rp = activeBeacon.rings[i];
+          this.ringSpin[i] += dt * (i === ringIndex ? 1.6 : 0.4);
+          this.q.setFromAxisAngle(this.v.set(0, 1, 0), this.ringSpin[i]);
+          this.m.compose(this.v.set(rp.x, rp.y, rp.z), this.q, this.s.set(1, 1, 1));
+          if (i < ringIndex) rc.setXYZW(i, 0.13, 0.2, 0.18, 1);
+          else if (i === ringIndex) rc.setXYZW(i, 1.0, 0.82, 0.4, 1);
+          else rc.setXYZW(i, 0.21, 0.88, 0.72, 1);
+        } else {
+          this.m.compose(this.v.set(0, -50, 0), this.q.identity(), this.s.set(0.001, 0.001, 0.001));
+        }
+        this.rings.setMatrixAt(i, this.m);
       }
+      this.rings.instanceMatrix.needsUpdate = true;
+      rc.needsUpdate = true;
     }
   }
 }

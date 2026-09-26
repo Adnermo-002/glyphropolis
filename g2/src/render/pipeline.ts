@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { PALETTE_DATA, paletteStops } from './palettes';
 import { ATLAS_COLS, ATLAS_ROWS, MATCH_CODES, RAMP_STEPS, buildAtlas, buildCoverage, buildRampTable } from './atlas';
-import { CFG, type PaletteId } from '../config';
+import { CFG, QUALITY_PRESET, type PaletteId, type QualityTier } from '../config';
 
 /** scene samples per text cell (a 1:2 cell gets square samples) */
 const TX = 3;
@@ -20,6 +20,7 @@ const NM = MATCH_CODES.length;
 const COV_STRIDE = Math.ceil((TX * TY) / 4);
 
 const VERT_WORLD = /* glsl */ `
+invariant gl_Position; // depth pre-pass and colour pass must agree exactly
 in vec4 aColor;
 in float aMat;
 in vec4 aParams;
@@ -49,7 +50,7 @@ void main() {
 `;
 
 // sun shadow map: depth-only pass from an orthographic sun camera that follows the player
-const SHADOW_SIZE = 4096;
+// (resolution comes from the quality preset, see config.ts QUALITY_PRESET)
 const SHADOW_HALF = 170;
 const FRAG_SHADOW = /* glsl */ `
 precision highp float;
@@ -90,13 +91,24 @@ uniform vec3 uLampColor;
 uniform sampler2D uBlockMap;
 uniform vec2 uBlockOrigin;
 uniform float uBlockMapSize;
-uniform sampler2D uShadowMap;
+uniform sampler2DShadow uShadowMap;
 uniform mat4 uShadowMat;
 uniform float uShadowOn;
 uniform float uShadowTexel;
+uniform int uQ; // quality tier 0..2 (a uniform, not a define: switching tiers must not recompile)
 
 float em = 0.0;
 bool gLit = false; // ground already lit (water)
+// deferred surface requests, resolved once at the end of main() (see windows())
+float gWin = 0.0;                 // pane coverage of this fragment
+vec2 gCs = vec2(1.9, 3.05);       // pane / room size
+float gF0 = 0.08;                 // glass reflectivity at normal incidence
+float gPLit = 0.0;                // room lit?
+float gH = 0.0;                   // per-room hash
+vec3 gTint = vec3(0.8, 0.9, 0.95);
+float gSpand = 0.0, gSpandK = 0.0; // curtain-wall spandrel bands (see main)
+float gEmK = 0.0;                 // emissive per lit pane
+bool gWater = false;              // shade as water (resolved once in main)
 
 float hash21(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -112,7 +124,8 @@ float noise2(vec2 p) {
 }
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * noise2(p); p *= 2.03; a *= 0.5; }
+  int oct = uQ >= 2 ? 4 : 2;
+  for (int i = 0; i < oct; i++) { v += a * noise2(p); p *= 2.03; a *= 0.5; }
   return v;
 }
 
@@ -183,7 +196,7 @@ void ground(out vec3 col, int nc) {
   em = 0.0;
 
   if (btype > 2.5) { // full water block
-    col = waterCol(vW, vec3(0.0, 1.0, 0.0)); gLit = true;
+    col = vec3(0.0); gWater = true; gLit = true;
     return;
   }
 
@@ -234,7 +247,7 @@ void ground(out vec3 col, int nc) {
     path = max(path, 1.0 - step(1.3, dr));
     if (bpar > 1.5) {
       float dpc = length(pc) - 13.0;
-      if (dpc < 0.0) { col = waterCol(vW, vec3(0.0, 1.0, 0.0)); gLit = true; return; }
+      if (dpc < 0.0) { col = vec3(0.0); gWater = true; gLit = true; return; }
       path *= 1.0 - smoothstep(14.0, 15.5, length(pc));
     }
     col = mix(col, vec3(0.4, 0.36, 0.29) * (0.85 + 0.3 * n2), path);
@@ -272,9 +285,12 @@ vec3 envRefl(vec3 R, float seed, float sh) {
   if (R.y >= 0.0) {
     float up = sqrt(clamp(R.y, 0.0, 1.0));
     c = mix(uSkyHor, uSkyTop, up);
-    // clouds projected on a sky plane
-    vec2 cp = R.xz / (R.y + 0.12) * 1.4 + vec2(uTime * 0.01, 0.0);
-    float cl = smoothstep(0.45, 0.8, fbm(cp + seed * 0.01));
+    // clouds projected on a sky plane (low tier: just the average cloud cover)
+    float cl = 0.15 + 0.35 * uOvercast;
+    if (uQ >= 1) {
+      vec2 cp = R.xz / (R.y + 0.12) * 1.4 + vec2(uTime * 0.01, 0.0);
+      cl = smoothstep(0.45, 0.8, fbm(cp + seed * 0.01));
+    }
     c = mix(c, uCloudTint * (0.55 + 0.6 * uSunI) + uSkyHor * 0.2, cl * (0.55 + 0.4 * uOvercast) * smoothstep(0.0, 0.08, R.y));
     // sun disc + halo (killed where the pane itself is in shadow only for the sharp part)
     float sd = max(dot(R, uSunDir), 0.0);
@@ -311,34 +327,45 @@ vec3 roomCol(vec3 n, vec3 vdir, vec2 cs, float lit, float h) {
   vec3 T = normalize(vec3(-n.z, 0.0, n.x) + vec3(1e-4, 0.0, 0.0));
   vec3 rd = -vdir;
   vec3 ro = vec3(dot(vW, T), vW.y, 0.0);
-  vec3 r = vec3(dot(rd, T), rd.y, max(-dot(rd, n), 0.05));
   vec2 cmin = floor(ro.xy / cs) * cs;
-  float depth = 4.5 + 2.0 * fract(h * 17.0);
-  float tx = (r.x > 0.0 ? (cmin.x + cs.x - ro.x) : (cmin.x - ro.x)) / (abs(r.x) > 1e-4 ? r.x : 1e-4);
-  float ty = (r.y > 0.0 ? (cmin.y + cs.y - ro.y) : (cmin.y - ro.y)) / (abs(r.y) > 1e-4 ? r.y : 1e-4);
-  float tz = depth / r.z;
-  float t = min(min(abs(tx), abs(ty)), tz);
-  vec3 hp = ro + r * t;
-  float dz = clamp(hp.z / depth, 0.0, 1.0);
   vec3 wall = mix(vec3(0.55, 0.5, 0.44), vec3(0.42, 0.46, 0.5), fract(h * 5.3));
-  vec3 alb;
-  if (t == tz) alb = wall * 0.95;                              // back wall
-  else if (t == abs(ty)) alb = r.y > 0.0 ? vec3(0.7) : vec3(0.3, 0.24, 0.2); // ceiling / floor
-  else alb = wall * 0.8;                                       // side walls
-  // furniture silhouette on the back half of the floor
-  if (t == tz && hp.y - cmin.y < cs.y * 0.32 && fract(h * 29.0) > 0.35) alb *= 0.45;
-  // daylight falls off into the room; lit rooms get warm ceiling light
-  vec3 day = (uAmbColor * uAmbI * 1.4 + uSunColor * uSunI * 0.45) * (1.0 - 0.5 * dz);
-  vec3 lamp = vec3(1.0, 0.76, 0.48) * lit * uLampI * (0.9 + 0.6 * step(0.0, r.y) * (1.0 - dz));
-  vec3 c = alb * (day * 0.85 + lamp * 1.7);
-  // blinds on some panes (at the glass plane)
   float fy = (ro.y - cmin.y) / cs.y;
+  vec3 c;
+  if (uQ == 0) {
+    // low tier: a flat back wall with the same daylight / lamp terms (no per-pixel ray march)
+    vec3 alb = wall * 0.9;
+    if (fy < 0.32 && fract(h * 29.0) > 0.35) alb *= 0.55;      // furniture band
+    vec3 day = (uAmbColor * uAmbI * 1.4 + uSunColor * uSunI * 0.45) * 0.7;
+    vec3 lamp = vec3(1.0, 0.76, 0.48) * lit * uLampI * 1.2;
+    c = alb * (day * 0.85 + lamp * 1.7);
+  } else {
+    vec3 r = vec3(dot(rd, T), rd.y, max(-dot(rd, n), 0.05));
+    float depth = 4.5 + 2.0 * fract(h * 17.0);
+    float tx = (r.x > 0.0 ? (cmin.x + cs.x - ro.x) : (cmin.x - ro.x)) / (abs(r.x) > 1e-4 ? r.x : 1e-4);
+    float ty = (r.y > 0.0 ? (cmin.y + cs.y - ro.y) : (cmin.y - ro.y)) / (abs(r.y) > 1e-4 ? r.y : 1e-4);
+    float tz = depth / r.z;
+    float t = min(min(abs(tx), abs(ty)), tz);
+    vec3 hp = ro + r * t;
+    float dz = clamp(hp.z / depth, 0.0, 1.0);
+    vec3 alb;
+    if (t == tz) alb = wall * 0.95;                              // back wall
+    else if (t == abs(ty)) alb = r.y > 0.0 ? vec3(0.7) : vec3(0.3, 0.24, 0.2); // ceiling / floor
+    else alb = wall * 0.8;                                       // side walls
+    // furniture silhouette on the back half of the floor
+    if (t == tz && hp.y - cmin.y < cs.y * 0.32 && fract(h * 29.0) > 0.35) alb *= 0.45;
+    // daylight falls off into the room; lit rooms get warm ceiling light
+    vec3 day = (uAmbColor * uAmbI * 1.4 + uSunColor * uSunI * 0.45) * (1.0 - 0.5 * dz);
+    vec3 lamp = vec3(1.0, 0.76, 0.48) * lit * uLampI * (0.9 + 0.6 * step(0.0, r.y) * (1.0 - dz));
+    c = alb * (day * 0.85 + lamp * 1.7);
+  }
+  // blinds on some panes (at the glass plane)
   float blind = step(0.72, fract(h * 13.0)) * step(1.0 - fract(h * 41.0) * 0.8, fy);
   vec3 bl = vec3(0.62, 0.58, 0.5) * (uAmbI * 0.6 + uSunI * 0.3 + lit * uLampI * 0.8) * (0.8 + 0.2 * step(0.5, fract(fy * cs.y * 6.0)));
   return mix(c, bl, blind);
 }
 
 // a window pane: Fresnel mix of the reflection and the (tinted) room behind it
+vec3 gRefl = vec3(0.0); // reflection of the last pane (reused by the spandrel bands of curtain walls)
 vec3 paneCol(vec3 n, vec2 cs, float F0, float lit, float h, float sh, vec3 tint) {
   vec3 vdir = normalize(cameraPosition - vW);
   vec3 T = normalize(vec3(-n.z, 0.0, n.x) + vec3(1e-4, 0.0, 0.0));
@@ -347,12 +374,17 @@ vec3 paneCol(vec3 n, vec2 cs, float F0, float lit, float h, float sh, vec3 tint)
   float ndv = clamp(dot(np, vdir), 0.0, 1.0);
   float F = F0 + (1.0 - F0) * pow(1.0 - ndv, 5.0);
   vec3 refl = envRefl(reflect(-vdir, np), h * 97.0 + vPar.w, sh);
+  gRefl = refl;
   // tinted glass passes ~60% of the daylight room, but lit rooms at night shine through almost fully
   vec3 room = roomCol(n, vdir, cs, lit, h) * tint * mix(0.6, 1.0, uNight) * mix(vec3(1.0), vec3(0.8, 0.95, 1.1), 1.0 - uNight);
   return mix(room, refl * mix(vec3(1.0), tint * 1.15, 0.7), F);
 }
 
-void windows(vec3 n, inout vec3 col, float sh) {
+// Window panes are not shaded here: the branches only describe the pane (size, tint, lit room,
+// coverage) and main() resolves it once. With every branch calling paneCol() the driver inlined the
+// large reflection + room code a dozen times, which made the shader take ~10 s to compile on D3D.
+
+void windows(inout vec3 col) {
   float variant = vPar.z;
   vec2 cell = vec2(floor(vPar.x / 1.9), floor(vPar.y / 3.05));
   float h = hash21(cell + vPar.w * 0.37);
@@ -360,8 +392,7 @@ void windows(vec3 n, inout vec3 col, float sh) {
   if (variant < 0.5) {
     vec2 f = fract(vec2(vPar.x / 1.9, vPar.y / 3.05));
     float win = step(0.18, f.x) * (1.0 - step(0.82, f.x)) * step(0.3, f.y) * (1.0 - step(0.82, f.y));
-    col = mix(col, paneCol(n, vec2(1.9, 3.05), 0.08, lit, h, sh, vec3(0.8, 0.9, 0.95)), win);
-    em += win * lit * 0.34 * uLampI;
+    gWin = win; gPLit = lit; gH = h; gEmK = 0.34;
   } else if (variant < 1.5) {
     vec2 f = fract(vec2(vPar.x / 3.4, vPar.y / 3.4));
     float gx = min(f.x, 1.0 - f.x), gy = min(f.y, 1.0 - f.y);
@@ -369,28 +400,21 @@ void windows(vec3 n, inout vec3 col, float sh) {
     vec2 id = vec2(floor(vPar.x / 3.4), floor(vPar.y / 3.4));
     float hl = hash21(id + vPar.w * 0.37);
     float llit = step(1.0 - uWindowLit * 1.15, hl);
-    col = mix(col, paneCol(n, vec2(3.4), 0.12, llit, hl, sh, vec3(0.75, 0.88, 0.95)), mull);
-    em += mull * llit * 0.3 * uLampI;
+    gWin = mull; gCs = vec2(3.4); gF0 = 0.12; gPLit = llit; gH = hl; gTint = vec3(0.75, 0.88, 0.95); gEmK = 0.3;
   } else if (variant < 2.5) {
     // balcony slabs
     float fy = fract(vPar.y / 3.05);
     float slab = (1.0 - smoothstep(0.05, 0.11, fy)) + smoothstep(0.93, 0.99, fy);
     col = mix(col, col * 0.5 + vec3(0.015), clamp(slab, 0.0, 1.0));
     float win = step(0.22, fy) * (1.0 - step(0.86, fy));
-    float hx = hash21(vec2(floor(vPar.x / 1.9), floor(vPar.y / 3.05)) + vPar.w * 0.37);
-    float llit = step(1.0 - uWindowLit, hx);
-    col = mix(col, paneCol(n, vec2(1.9, 3.05), 0.08, llit, hx, sh, vec3(0.8, 0.9, 0.95)), win * 0.92);
-    em += win * llit * 0.32 * uLampI;
+    gWin = win * 0.92; gPLit = lit; gH = h; gEmK = 0.35;
   } else {
     // spandrel bands
     float fy = fract(vPar.y / 3.05);
     float band = step(0.5, fy) * (1.0 - step(0.95, fy));
     col = mix(col, vCol.rgb * (0.75 + 0.3 * uSunI), band);
     float win = (1.0 - band) * step(0.22, fy) * (1.0 - step(0.9, fy));
-    float hx = hash21(vec2(floor(vPar.x / 1.9), floor(vPar.y / 3.05)) + vPar.w * 0.37);
-    float llit = step(1.0 - uWindowLit, hx);
-    col = mix(col, paneCol(n, vec2(1.9, 3.05), 0.08, llit, hx, sh, vec3(0.8, 0.9, 0.95)), win);
-    em += win * llit * 0.32 * uLampI;
+    gWin = win; gPLit = lit; gH = h; gEmK = 0.32;
   }
 }
 
@@ -413,16 +437,22 @@ float sunShadow(vec3 pos, vec3 n) {
   vec2 edge = min(c.xy, 1.0 - c.xy);
   float fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
   if (fade <= 0.0 || c.z >= 1.0) return 1.0;
-  float bias = 0.0004;
+  // hardware PCF: every tap is already a 2x2 bilinear comparison, so a few taps give a soft edge
+  float z = c.z - 0.0004;
   float s = 0.0;
-  float r = uShadowTexel * 1.6;
-  for (int i = -2; i <= 2; i++) {
-    for (int j = -2; j <= 2; j++) {
-      float d = texture(uShadowMap, c.xy + vec2(float(i), float(j)) * r).r;
-      s += (c.z - bias > d) ? 0.0 : 1.0;
+  if (uQ >= 2) {
+    float r = uShadowTexel * 1.5;
+    for (int i = -1; i <= 1; i++) {
+      for (int j = -1; j <= 1; j++) s += texture(uShadowMap, vec3(c.xy + vec2(float(i), float(j)) * r, z));
     }
+    s /= 9.0;
+  } else if (uQ == 1) {
+    float r = uShadowTexel * 0.9;
+    s = 0.25 * (texture(uShadowMap, vec3(c.xy + vec2(-r, -r), z)) + texture(uShadowMap, vec3(c.xy + vec2(r, -r), z))
+              + texture(uShadowMap, vec3(c.xy + vec2(-r, r), z)) + texture(uShadowMap, vec3(c.xy + vec2(r, r), z)));
+  } else {
+    s = texture(uShadowMap, vec3(c.xy, z));
   }
-  s /= 25.0;
   return mix(1.0, s, fade);
 }
 
@@ -435,20 +465,21 @@ void main() {
   int nc = normalCode(n);
   float obj = 0.0;
 
+  // sun visibility (one lookup for every material: keeps the PCF code in the shader once)
+  float sh = 1.0;
+  if (uSunI > 0.01 && (vMat < 1.5 || dot(n, uSunDir) > 0.0)) sh = sunShadow(vW, vMat < 1.5 ? vec3(0.0, 1.0, 0.0) : n);
+
   if (vMat < 1.5) { // ground
     ground(col, nc);
     if (!gLit) {
       float pool = lampPool(vW.xz) * uLampI;
-      float shG = sunShadow(vW, vec3(0.0, 1.0, 0.0));
       // shadowed ground is lit by the blue sky only; sunlit ground gets the warm sun on top
       vec3 skyAmb = mix(uAmbColor, uSkyTop * 1.6 + 0.12, 0.35 * (1.0 - uNight));
-      vec3 gLight = uSunColor * max(uSunDir.y, 0.0) * uSunI * shG + skyAmb * uAmbI * (1.0 + 0.25 * (1.0 - uNight));
+      vec3 gLight = uSunColor * max(uSunDir.y, 0.0) * uSunI * sh + skyAmb * uAmbI * (1.0 + 0.25 * (1.0 - uNight));
       col = col * (gLight * 1.45 + uLampColor * pool * 3.2) + uLampColor * pool * 0.04;
     }
   } else {
     obj = 1.0 + mod(vPar.w, 7.0);
-    float sh = 1.0;
-    if (dot(n, uSunDir) > 0.0 && uSunI > 0.01) sh = sunShadow(vW, n);
     float diff = max(dot(n, uSunDir), 0.0) * uSunI * sh;
     // fixed per-face shading keeps the faces of a box distinct under any sun angle
     float face = 0.84 + 0.1 * n.x + 0.05 * n.z + 0.16 * max(n.y, 0.0) - 0.3 * max(-n.y, 0.0);
@@ -469,14 +500,14 @@ void main() {
     em = 0.0;
     float mf = vMat;
     if (mf < 2.5) { // concrete
-      if (vPar.y > 0.0) windows(n, col, sh);
+      if (vPar.y > 0.0) windows(col);
     } else if (mf < 3.5) { // glass
       // curtain wall: 1.7 m panels, a spandrel band at every floor, thin mullions
       // coated curtain-wall glass: blue-green tint on both what passes through and what it reflects
       vec3 tint = mix(vec3(0.55, 0.78, 0.95), clamp(base * 1.8, 0.0, 1.0), 0.35);
       if (abs(n.y) > 0.5) {                     // glass roofs / skylights: reflection only
-        vec3 vdir = normalize(cameraPosition - vW);
-        col = mix(col * 0.4, envRefl(reflect(-vdir, n), vPar.w, sh), 0.7) * tint;
+        col *= 0.4 * tint;
+        gWin = 0.7; gF0 = 1.0; gTint = tint; gH = fract(vPar.w * 0.173); gCs = vec2(3.4, 3.4);
       } else {
         vec2 cs = vec2(1.7, 3.05);
         vec2 q = vec2(vPar.x, vPar.y) / cs;
@@ -487,14 +518,12 @@ void main() {
         float spand = step(cs.y - 0.55, gy) + (1.0 - step(0.08, gy));
         float h = hash21(vec2(floor(id.x / 2.0), id.y) + vPar.w * 0.37); // rooms span two panels
         float lit = step(1.0 - uWindowLit * 1.1, h);
-        vec3 frame = base * light * 0.8;
-        vec3 pane = paneCol(n, vec2(cs.x * 2.0, cs.y), mix(0.45, 0.2, uNight), lit, h, sh, tint);
-        vec3 sp = mix(frame, envRefl(reflect(-normalize(cameraPosition - vW), n), vPar.w, sh) * tint * 0.7, 0.55);
-        col = mix(frame, mix(pane, sp, clamp(spand, 0.0, 1.0)), mull);
-        em += mull * (1.0 - clamp(spand, 0.0, 1.0)) * lit * 0.3 * uLampI;
+        col = base * light * 0.8;               // mullion frame
+        gWin = mull; gCs = vec2(cs.x * 2.0, cs.y); gF0 = mix(0.45, 0.2, uNight); gPLit = lit; gH = h; gTint = tint;
+        gSpand = clamp(spand, 0.0, 1.0); gSpandK = 0.55; gEmK = 0.3;
       }
     } else if (mf < 4.5) { // brick
-      if (vPar.y > 0.0) windows(n, col, sh);
+      if (vPar.y > 0.0) windows(col);
     } else if (mf < 5.5) { // roof
       col *= 0.85;
     } else if (mf < 6.5) { // metal
@@ -502,14 +531,14 @@ void main() {
       float spec = pow(max(dot(reflect(-uSunDir, n), vdir), 0.0), 48.0);
       col += uSunColor * spec * uSunI * 0.5;
     } else if (mf < 7.5) { // wood
-      if (vPar.y > 0.0) windows(n, col, sh);
+      if (vPar.y > 0.0) windows(col);
     } else if (mf < 8.5) { // leaf
       float nv = noise2(vW.xz * 0.8 + vW.y * 0.5 + vPar.w);
       col = base * light * (0.8 + 0.4 * nv) + base * diff * 0.3;
     } else if (mf < 10.5) { // trunk / grass
       col = base * light * (0.88 + 0.22 * noise2(vW.xz * 1.6 + vW.y));
     } else if (mf < 11.5) { // water mesh
-      col = waterCol(vW, n);
+      gWater = true;
     } else if (mf < 12.5) { // neon
       float fl = 0.85 + 0.15 * sin(uTime * 9.0 + vW.x * 2.1 + vPar.w * 7.0);
       em = 1.6 * uLampI * fl;
@@ -545,6 +574,16 @@ void main() {
   }
 
 
+  // resolve the deferred surfaces (each inlined exactly once)
+  if (gWater) col = waterCol(vW, vMat < 1.5 ? vec3(0.0, 1.0, 0.0) : n);
+  if (gWin > 0.0) {
+    vec3 pane = paneCol(n, gCs, gF0, gPLit, gH, sh, gTint);
+    // curtain walls: spandrel bands show the frame colour with a weaker reflection
+    vec3 alt = mix(col, gRefl * gTint * 0.7, gSpandK);
+    col = mix(col, mix(pane, alt, gSpand), gWin);
+    em += gWin * (1.0 - gSpand) * gPLit * gEmK * uLampI;
+  }
+
   float dist = length(cameraPosition - vW);
   float ff = 1.0 - exp(-dist * dist * uFogD);
   // aerial perspective: haze glows warm when looking toward the sun
@@ -577,6 +616,7 @@ uniform vec3 uMoonDir;
 uniform float uOvercast;
 uniform vec3 uFogColor;
 uniform float uFlash;
+uniform int uQ;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outInfo;
 
@@ -598,7 +638,8 @@ float fbm(vec2 p) {
   // rotated octaves: no axis-aligned lattice artefacts
   const mat2 R = mat2(1.6, 1.2, -1.2, 1.6);
   float v = 0.0, a = 0.5;
-  for (int i = 0; i < 5; i++) { v += a * noise2(p); p = R * p; a *= 0.5; }
+  int oct = uQ >= 2 ? 5 : (uQ == 1 ? 4 : 3);
+  for (int i = 0; i < oct; i++) { v += a * noise2(p); p = R * p; a *= 0.5; }
   return v;
 }
 
@@ -637,7 +678,7 @@ void main() {
   if (y > 0.012) {
     vec2 cuv = d.xz / (y + 0.18);
     vec2 cp = cuv * 0.55 + vec2(uTime * 0.006, uTime * 0.0023);
-    cp += 0.6 * vec2(noise2(cp * 0.7 + 3.1), noise2(cp * 0.7 + 8.7)); // light domain warp
+    if (uQ >= 1) cp += 0.6 * vec2(noise2(cp * 0.7 + 3.1), noise2(cp * 0.7 + 8.7)); // light domain warp
     float cn = fbm(cp);
     cov = smoothstep(0.6 - uOvercast * 0.38, 0.8, cn) * smoothstep(0.012, 0.14, y) * (0.25 + 0.75 * uOvercast);
     vec3 ccol = uCloudTint * (0.45 + 0.45 * uSunI) + uFogColor * 0.25;
@@ -782,6 +823,7 @@ uniform float uNight;
 uniform vec4 uCov[${NM * COV_STRIDE}];
 uniform float uCovSq[${NM}];
 uniform float uCovCode[${NM}];
+uniform int uNM; // = ${NM}; a uniform bound keeps the driver from unrolling the glyph loop ${NM}x (slow compiles)
 ${GLSL_GRADE}
 #define TX ${TX}
 #define TY ${TY}
@@ -935,7 +977,7 @@ void main() {
         }
         float bestB = 1e9, bestD = 1e9;
         int bB = 0, bD = 0;
-        for (int g = 0; g < ${NM}; g++) {
+        for (int g = 0; g < uNM; g++) {
           float db = 0.0, dd = 0.0;
           for (int k = 0; k < NT; k++) {
             float c = uCov[g * ${COV_STRIDE} + k / 4][k % 4];
@@ -1119,10 +1161,26 @@ export class Pipeline {
   private rtB: THREE.WebGLRenderTarget;
   private rtB2: THREE.WebGLRenderTarget;
   private rtCell: THREE.WebGLRenderTarget;
-  private rtShadow: THREE.WebGLRenderTarget;
+  private rtShadow!: THREE.WebGLRenderTarget;
+  private shadowSize = 0;
   private shadowCam = new THREE.OrthographicCamera(-SHADOW_HALF, SHADOW_HALF, SHADOW_HALF, -SHADOW_HALF, 1, 1200);
   private shadowMat: THREE.ShaderMaterial;
+  /** depth-only pre-pass: the expensive world shader then runs once per pixel instead of once per
+   *  overdraw layer. Off by default: measured on a Radeon 610M it cost more (extra geometry pass)
+   *  than it saved; kept for very fill-bound setups (debug hook __city.prepass(true)) */
+  private prepassMat: THREE.ShaderMaterial;
+  prepass = false;
   private shadowMatrix = new THREE.Matrix4();
+  /** current quality tier (see config.ts QUALITY_PRESET) */
+  quality: QualityTier = 2;
+  private dprCap = 2;
+  private shadowEvery = 1;
+  private shadowAge = 99;
+  /** GPU description from WEBGL_debug_renderer_info ('' if hidden) */
+  gpuName = '';
+  /** boot timings (ms): background shader compile, warm-up frame (driver-side compiles) */
+  compileMs = 0;
+  warmupMs = 0;
   /** world point the shadow map is centred on (player position; falls back to the camera) */
   shadowFocus: THREE.Vector3 | null = null;
   private skyMesh: THREE.Mesh;
@@ -1143,16 +1201,27 @@ export class Pipeline {
   private cssH = 2;
 
   constructor(canvas: HTMLCanvasElement) {
+    // ?lowgpu in the URL asks for the power-saving GPU (dual-GPU laptops): lets us test the weak one
+    const lowGpu = typeof location !== 'undefined' && /[?&]lowgpu/.test(location.search);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
       alpha: false,
       stencil: false,
-      powerPreference: 'high-performance',
+      powerPreference: lowGpu ? 'low-power' : 'high-performance',
     });
     const gl = this.renderer.getContext();
     this.halfFloat = gl instanceof WebGL2RenderingContext && !!gl.getExtension('EXT_color_buffer_float');
     this.renderer.setPixelRatio(1);
+    // every pass clears (or covers) its target itself
+    this.renderer.autoClear = false;
+    // all shaders write final colours themselves; a linear output space also means one program
+    // serves both the render targets and the canvas (no second compile of the same shader)
+    this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+    try {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      this.gpuName = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+    } catch { this.gpuName = ''; }
 
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.12, 1400);
     this.scene = new THREE.Scene();
@@ -1170,26 +1239,27 @@ export class Pipeline {
       uBlockOrigin: V(this.blockOrigin), uBlockMapSize: V(32),
       uRes: V(new THREE.Vector2(1, 1)), uFov: V(new THREE.Vector2(1, 1)),
       uCamMat: V(new THREE.Matrix3()), uBeamI: V(1),
-      uExposure: V(1.3), uGrade: V(0.15), uLight: V(0),
+      uExposure: V(1.3), uGrade: V(0.15), uLight: V(0), uQ: V(QUALITY_PRESET[2].shader),
       uStop: V([0, 1, 2, 3, 4].map((i) => new THREE.Vector3(stops[i * 3], stops[i * 3 + 1], stops[i * 3 + 2]))),
     };
 
-    this.rtShadow = new THREE.WebGLRenderTarget(SHADOW_SIZE, SHADOW_SIZE, {
-      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
-      depthBuffer: true, stencilBuffer: false, type: THREE.UnsignedByteType,
-    });
-    this.rtShadow.depthTexture = new THREE.DepthTexture(SHADOW_SIZE, SHADOW_SIZE, THREE.UnsignedIntType);
-    this.rtShadow.depthTexture.minFilter = THREE.NearestFilter;
-    this.rtShadow.depthTexture.magFilter = THREE.NearestFilter;
-    this.u.uShadowMap = V(this.rtShadow.depthTexture);
+    this.u.uShadowMap = V(null);
     this.u.uShadowMat = V(this.shadowMatrix);
     this.u.uShadowOn = V(0);
-    this.u.uShadowTexel = V(1 / SHADOW_SIZE);
+    this.u.uShadowTexel = V(1 / 4096);
+    this.makeShadowTarget(QUALITY_PRESET[this.quality].shadowSize);
     this.shadowMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: VERT_WORLD,
       fragmentShader: FRAG_SHADOW,
       side: THREE.DoubleSide,
+      colorWrite: false,
+    });
+    this.prepassMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: VERT_WORLD,
+      fragmentShader: FRAG_SHADOW,
+      side: THREE.FrontSide,
       colorWrite: false,
     });
 
@@ -1316,6 +1386,7 @@ export class Pipeline {
         uCov: V([] as THREE.Vector4[]),
         uCovSq: V([] as number[]),
         uCovCode: V(MATCH_CODES.slice()),
+        uNM: V(NM),
       },
       depthTest: false, depthWrite: false,
     });
@@ -1359,6 +1430,86 @@ export class Pipeline {
     this.setPalette(this.palette);
   }
 
+  private makeShadowTarget(size: number): void {
+    if (size === this.shadowSize) return;
+    this.shadowSize = size;
+    this.rtShadow?.dispose();
+    this.rtShadow = new THREE.WebGLRenderTarget(size, size, {
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: true, stencilBuffer: false, type: THREE.UnsignedByteType,
+      format: THREE.RedFormat, // colour is never written (colorWrite false): keep it 1 byte/texel
+    });
+    const dt = new THREE.DepthTexture(size, size, THREE.UnsignedIntType);
+    // linear + compare mode = hardware 2x2 percentage-closer filtering per tap
+    dt.minFilter = THREE.LinearFilter;
+    dt.magFilter = THREE.LinearFilter;
+    dt.compareFunction = THREE.LessEqualCompare;
+    this.rtShadow.depthTexture = dt;
+    this.u.uShadowMap.value = dt;
+    this.u.uShadowTexel.value = 1 / size;
+    this.shadowAge = 99;
+  }
+
+  /** switch the quality tier: shadow resolution / filtering, shader detail, output resolution */
+  setQuality(q: QualityTier): void {
+    if (q === this.quality) return;
+    this.quality = q;
+    const pr = QUALITY_PRESET[q];
+    this.makeShadowTarget(pr.shadowSize);
+    this.shadowEvery = pr.shadowEvery;
+    this.dprCap = pr.dprCap;
+    this.u.uQ.value = pr.shader;
+    this.resize(this.cssW, this.cssH);
+  }
+
+  /**
+   * Compile every shader program up front (in the background where the driver allows it) so the
+   * first real frame does not freeze the page. Resolves when all programs are ready.
+   */
+  async precompile(): Promise<void> {
+    const tmp = new THREE.Scene();
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    this.fillGeo(box, 2, [0.5, 0.5, 0.5, 1], 0, 0);
+    const inst = (m: THREE.Material) => { const im = new THREE.InstancedMesh(box, m, 1); im.frustumCulled = false; return im; };
+    const one = (m: THREE.Material) => { const mm = new THREE.Mesh(box, m); mm.frustumCulled = false; return mm; };
+    for (const m of [this.worldMat, this.beamMat, this.shadowMat, this.prepassMat]) { tmp.add(one(m)); tmp.add(inst(m)); }
+    // the world objects above take part in the warm-up frame; the full-screen passes are only
+    // compiled here (renderImpl runs them for real) - drawing them into the scene target would be
+    // a feedback loop
+    const worldObjs = tmp.children.slice();
+    for (const m of [this.skyMesh.material as THREE.Material, this.glowMat, this.downMat, this.cellMat, this.screenMat, this.rawMat]) tmp.add(one(m));
+    const t0 = performance.now();
+    try {
+      await this.renderer.compileAsync(tmp, this.camera);
+      // compileAsync only watches one program per material; wait for the instanced variants too
+      const progs = (this.renderer.info.programs ?? []) as unknown as { isReady?: () => boolean }[];
+      for (let i = 0; i < 600 && !progs.every((p) => !p.isReady || p.isReady()); i++) await new Promise((r) => setTimeout(r, 20));
+    } catch (e) {
+      this.lastRenderError = 'compile: ' + String(e);
+    }
+    this.compileMs = Math.round(performance.now() - t0);
+    // warm-up frame: drivers build their final per-target shader variants at the first real draw,
+    // so draw everything once now (the boot overlay hides the canvas) instead of in the first frame
+    await new Promise<void>((resolve) => requestAnimationFrame(() => {
+      const t1 = performance.now();
+      for (const o of worldObjs) this.scene.add(o);
+      try { this.renderImpl(); } catch (e) { this.lastRenderError = 'warmup: ' + String(e); }
+      for (const o of worldObjs) this.scene.remove(o);
+      // a tiny read-back makes the GPU process finish (and therefore compile) everything now
+      try {
+        const probe = new THREE.WebGLRenderTarget(1, 1);
+        this.renderer.setRenderTarget(probe);
+        this.renderer.clear();
+        this.renderer.readRenderTargetPixels(probe, 0, 0, 1, 1, new Uint8Array(4));
+        this.renderer.setRenderTarget(null);
+        probe.dispose();
+      } catch { /* fine */ }
+      this.warmupMs = Math.round(performance.now() - t1);
+      resolve();
+    }));
+    box.dispose();
+  }
+
   debugView(scene: boolean, depth = false): void {
     this.debugScene = scene;
     this.debugDepth = depth;
@@ -1386,7 +1537,7 @@ export class Pipeline {
   resize(cssW: number, cssH: number): void {
     this.cssW = Math.max(2, cssW);
     this.cssH = Math.max(2, cssH);
-    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), this.dprCap);
     this.dpr = dpr;
     const w = Math.max(16, Math.round(this.cssW * dpr));
     const h = Math.max(16, Math.round(this.cssH * dpr));
@@ -1539,7 +1690,17 @@ export class Pipeline {
     const px = new Uint8Array(4);
     const sync = () => { r.setRenderTarget(probe); r.clear(); r.readRenderTargetPixels(probe, 0, 0, 1, 1, px); void gl; };
     const t = (name: string, f: () => void) => { sync(); const a = performance.now(); f(); sync(); out[name] = +(performance.now() - a).toFixed(2); };
-    t('scene', () => { r.setRenderTarget(this.rtScene); r.setClearColor(0x000000, 1); r.clear(); r.render(this.scene, this.camera); });
+    t('shadow', () => { this.shadowAge = 99; this.renderShadow(); });
+    t('prepass', () => { r.setRenderTarget(this.rtScene); r.setClearColor(0x000000, 1); r.clear(); this.renderPrepass(); });
+    const sky = this.skyMesh;
+    t('world', () => { sky.visible = false; r.setRenderTarget(this.rtScene); r.render(this.scene, this.camera); sky.visible = true; });
+    t('sky', () => {
+      // sky alone (over the depth already in the target)
+      const hid = this.scene.children.filter((o) => o !== sky && o.visible);
+      for (const o of hid) o.visible = false;
+      r.setRenderTarget(this.rtScene); r.render(this.scene, this.camera);
+      for (const o of hid) o.visible = true;
+    });
     const g = this.glowMat.uniforms;
     t('glow', () => {
       g.uSrc.value = this.rtScene.textures[0]; g.uMode.value = 0; this.pass(this.glowMat, this.rtA);
@@ -1559,6 +1720,9 @@ export class Pipeline {
     if ((u.uSunI.value as number) < 0.02) { u.uShadowOn.value = 0; return; }
     const sun = u.uSunDir.value as THREE.Vector3;
     if (sun.y < 0.03) { u.uShadowOn.value = 0; return; }
+    // low tier: reuse the map for a frame (the sun and the player move little in 1/30 s)
+    if (++this.shadowAge < this.shadowEvery && u.uShadowOn.value === 1) return;
+    this.shadowAge = 0;
     const cam = this.shadowCam;
     const f = this.shadowFocus ?? this.camera.position;
     // sun-space basis; snap the centre to whole texels so shadow edges don't crawl
@@ -1566,7 +1730,7 @@ export class Pipeline {
     const up = Math.abs(fwd.y) > 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
     const up2 = new THREE.Vector3().crossVectors(right, fwd).normalize();
-    const texel = (SHADOW_HALF * 2) / SHADOW_SIZE;
+    const texel = (SHADOW_HALF * 2) / this.shadowSize;
     const cx = Math.round(f.dot(right) / texel) * texel;
     const cy = Math.round(f.dot(up2) / texel) * texel;
     const cz = f.dot(fwd);
@@ -1595,12 +1759,27 @@ export class Pipeline {
     u.uShadowOn.value = 1;
   }
 
+  /** depth-only pass over the opaque city (everything except sky and additive beams) */
+  private renderPrepass(): void {
+    if (!this.prepass) return;
+    const hidden: THREE.Object3D[] = [];
+    for (const o of this.scene.children) {
+      const m = (o as THREE.Mesh).material;
+      if (o.visible && (o === this.skyMesh || m === this.beamMat || (m as THREE.Material)?.transparent)) { o.visible = false; hidden.push(o); }
+    }
+    this.scene.overrideMaterial = this.prepassMat;
+    this.renderer.render(this.scene, this.camera);
+    this.scene.overrideMaterial = null;
+    for (const o of hidden) o.visible = true;
+  }
+
   private renderImpl(): void {
     const r = this.renderer;
     this.renderShadow();
     r.setRenderTarget(this.rtScene);
     r.setClearColor(0x000000, 1);
     r.clear();
+    this.renderPrepass();
     r.render(this.scene, this.camera);
 
     // glow: threshold -> blur H -> blur V -> 1/8 downsample

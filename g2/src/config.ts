@@ -79,6 +79,24 @@ export const PALETTES = [
 ] as const;
 export type PaletteId = (typeof PALETTES)[number]['id'];
 
+/** render quality tiers (index = tier). 'auto' picks one from the GPU and measured frame times. */
+export type QualityTier = 0 | 1 | 2;
+export const QUALITY_NAME = ['低', '中', '高'];
+export const QUALITY_PRESET: readonly {
+  /** sun shadow map resolution */
+  shadowSize: number;
+  /** re-render the shadow map every n frames */
+  shadowEvery: number;
+  /** cap on devicePixelRatio for the final glyph pass */
+  dprCap: number;
+  /** QUALITY define for the world / sky shaders (0 cheap .. 2 full) */
+  shader: number;
+}[] = [
+  { shadowSize: 1024, shadowEvery: 2, dprCap: 1, shader: 0 },
+  { shadowSize: 2048, shadowEvery: 1, dprCap: 1.5, shader: 1 },
+  { shadowSize: 4096, shadowEvery: 1, dprCap: 2, shader: 2 },
+];
+
 export const CELL_SIZES = [
   { w: 5, h: 10, label: '5×10' },
   { w: 6, h: 12, label: '6×12' },

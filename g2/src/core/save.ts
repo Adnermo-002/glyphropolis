@@ -7,12 +7,14 @@ export interface SaveData {
   palette: string;
   cell: number;
   sound: boolean;
+  /** render quality: -1 auto, else tier index (config.ts QUALITY_PRESET) */
+  quality: number;
 }
 
 const keyFor = (seed: string) => `glyphropolis2:${seed}`;
 
 export function loadSave(seed: string): SaveData {
-  const def: SaveData = { shards: [], landmarks: [], best: {}, palette: 'NEON', cell: 2, sound: true };
+  const def: SaveData = { shards: [], landmarks: [], best: {}, palette: 'NEON', cell: 2, sound: true, quality: -1 };
   try {
     const raw = localStorage.getItem(keyFor(seed));
     if (!raw) return def;
